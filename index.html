@@ -13,8 +13,10 @@
   <script>
     // =========================================================
     // SYSTEME PHYSIQUE MAISON (gravité + sol + collisions objets)
-    // On n'utilise plus de lib externe (cannon.js) car incompatible
-    // avec cette version d'A-Frame -> les objets traversaient le sol.
+    // Collision "shape-aware" : chaque forme (box/sphère/cylindre)
+    // calcule sa propre distance de contour selon la direction
+    // testée et son orientation actuelle -> plus de clipping,
+    // et un cylindre couché touche bien le sol à son rayon.
     // =========================================================
     AFRAME.registerSystem('physics-world', {
 
@@ -43,6 +45,8 @@
         const subSteps = 4;
         const subDt = dt / subSteps;
 
+        const DOWN = new THREE.Vector3(0, -1, 0);
+
         for (let s = 0; s < subSteps; s++) {
 
           // 1) Gravité + intégration + collision avec le sol
@@ -58,9 +62,11 @@
             pos.y += body.velocity.y * subDt;
             pos.z += body.velocity.z * subDt;
 
-            // Sol horizontal en y = 0. On empêche STRICTEMENT
-            // l'objet de passer en dessous.
-            const floorY = body.data.halfHeight;
+            // Distance réelle entre le centre et le contour de la
+            // forme, DANS LA DIRECTION DU BAS, selon son orientation
+            // actuelle -> plus de "halfHeight" fixe qui trompe le
+            // cylindre couché.
+            const floorY = body.getExtentAlongDirection(DOWN);
 
             if (pos.y < floorY) {
               pos.y = floorY;
@@ -79,8 +85,9 @@
             body.velocity.multiplyScalar(0.999);
           }
 
-          // 2) Collisions entre objets (sphères englobantes) : ils se
-          // cognent et se repoussent, ne se traversent jamais.
+          // 2) Collisions entre objets, en utilisant le contour réel
+          // de chaque forme dans la direction qui les sépare (au lieu
+          // d'une sphère englobante fixe) -> beaucoup moins de clipping.
           for (let i = 0; i < this.bodies.length; i++) {
             for (let j = i + 1; j < this.bodies.length; j++) {
 
@@ -94,12 +101,21 @@
 
               const delta = new THREE.Vector3().subVectors(posB, posA);
               const dist = delta.length();
-              const minDist = a.data.radius + b.data.radius;
 
-              if (dist > 0.0001 && dist < minDist) {
+              if (dist < 0.0001) continue;
+
+              const dir = delta.clone().divideScalar(dist);
+
+              // Combien A s'étend vers B, et combien B s'étend vers A,
+              // chacun selon SA propre forme et SA propre rotation.
+              const extentA = a.getExtentAlongDirection(dir);
+              const extentB = b.getExtentAlongDirection(dir.clone().negate());
+              const minDist = extentA + extentB;
+
+              if (dist < minDist) {
 
                 const overlap = minDist - dist;
-                const normal = delta.clone().divideScalar(dist);
+                const normal = dir;
 
                 if (a.kinematic) {
                   // a est tenu en main -> immobile, on ne pousse que b
@@ -138,13 +154,23 @@
 
     });
 
-    // Composant à attacher à chaque objet grabbable/physique
+    // Composant à attacher à chaque objet grabbable/physique.
+    // Chaque forme sait calculer, pour une direction donnée, la
+    // distance entre son centre et son contour (fonction de support).
     AFRAME.registerComponent('physics-body', {
 
       schema: {
-        radius: { type: 'number', default: 0.6 },     // rayon de collision approx. (sphère englobante)
-        halfHeight: { type: 'number', default: 0.5 },  // hauteur de repos au sol
-        restitution: { type: 'number', default: 0.15 },// rebond
+        shape: { type: 'string', default: 'box' }, // 'box' | 'sphere' | 'cylinder'
+
+        // Box
+        width: { type: 'number', default: 1 },
+        height: { type: 'number', default: 1 },
+        depth: { type: 'number', default: 1 },
+
+        // Sphère & cylindre
+        radius: { type: 'number', default: 0.5 },
+
+        restitution: { type: 'number', default: 0.15 },
         friction: { type: 'number', default: 0.35 }
       },
 
@@ -152,8 +178,57 @@
         this.velocity = new THREE.Vector3(0, 0, 0);
         this.kinematic = false; // true pendant qu'on tient l'objet dans la main
 
+        this._invQuat = new THREE.Quaternion();
+        this._dirLocal = new THREE.Vector3();
+
         this.system = this.el.sceneEl.systems['physics-world'];
         this.system.registerBody(this);
+      },
+
+      // Distance entre le centre de l'objet et son contour, dans la
+      // direction "dirWorld" (unitaire), selon sa forme ET sa rotation
+      // actuelle. C'est la clé qui rend les collisions fidèles au
+      // vrai contour des formes (au lieu d'une sphère englobante).
+      getExtentAlongDirection: function (dirWorld) {
+
+        const data = this.data;
+
+        if (data.shape === 'sphere') {
+          return data.radius;
+        }
+
+        // On ramène la direction dans le repère local de l'objet
+        // (annule sa rotation actuelle) pour pouvoir travailler sur
+        // ses dimensions "au repos".
+        this._invQuat.copy(this.el.object3D.quaternion).invert();
+        this._dirLocal.copy(dirWorld).applyQuaternion(this._invQuat);
+
+        if (data.shape === 'box') {
+          const hx = data.width / 2;
+          const hy = data.height / 2;
+          const hz = data.depth / 2;
+
+          return (
+            Math.abs(this._dirLocal.x) * hx +
+            Math.abs(this._dirLocal.y) * hy +
+            Math.abs(this._dirLocal.z) * hz
+          );
+        }
+
+        if (data.shape === 'cylinder') {
+          // Axe local du cylindre = Y
+          const hh = data.height / 2;
+          const r = data.radius;
+
+          const axisComponent = this._dirLocal.y;
+          const radialComponent = Math.sqrt(
+            Math.max(0, 1 - axisComponent * axisComponent)
+          );
+
+          return hh * Math.abs(axisComponent) + r * radialComponent;
+        }
+
+        return data.radius; // sécurité
       },
 
       remove: function () {
@@ -582,7 +657,7 @@
     depth="1"
     color="#4CC3D9"
     shadow="cast: true; receive: true"
-    physics-body="radius: 0.65; halfHeight: 0.5; restitution: 0.1; friction: 0.4"
+    physics-body="shape: box; width: 1; height: 1; depth: 1; restitution: 0.1; friction: 0.4"
   >
   </a-box>
 
@@ -593,7 +668,7 @@
     radius="1"
     color="#EF2D5E"
     shadow="cast: true; receive: true"
-    physics-body="radius: 1; halfHeight: 1; restitution: 0.4; friction: 0.2"
+    physics-body="shape: sphere; radius: 1; restitution: 0.4; friction: 0.2"
   >
   </a-sphere>
 
@@ -605,7 +680,7 @@
     radius="0.5"
     height="2"
     shadow="cast: true; receive: true"
-    physics-body="radius: 0.55; halfHeight: 1; restitution: 0.1; friction: 0.4"
+    physics-body="shape: cylinder; radius: 0.5; height: 2; restitution: 0.1; friction: 0.4"
   >
   </a-cylinder>
 

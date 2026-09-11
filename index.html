@@ -249,13 +249,19 @@
                 <!-- Main gauche : déplacement -->
                 <a-entity
                 id="leftHand"
-                oculus-touch-controls="hand: left">
+                oculus-touch-controls="hand: left"
+                laser-controls="hand: left"
+                raycaster="objects: .global-menu-btn; far: 20"
+                line="color: #4fc3d9; opacity: 0.6">
                 </a-entity>
 
                 <!-- Main droite : rotation -->
                 <a-entity
                 id="rightHand"
-                oculus-touch-controls="hand: right">
+                oculus-touch-controls="hand: right"
+                laser-controls="hand: right"
+                raycaster="objects: .global-menu-btn; far: 20"
+                line="color: #4fc3d9; opacity: 0.6">
                 </a-entity>
 
             </a-entity>
@@ -291,7 +297,7 @@
       id="leftHand"
       meta-touch-controls="hand: left; model: true"
       laser-controls="hand: left"
-      raycaster="objects: .grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .global-menu-btn; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
       left-thumbstick-move="rig: #rig; speed: 2.0"
@@ -304,7 +310,7 @@
       id="rightHand"
       meta-touch-controls="hand: right; model: true"
       laser-controls="hand: right"
-      raycaster="objects: .grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .global-menu-btn; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
       joystick-turn="speed: 1.8"
@@ -385,7 +391,7 @@
       id="leftHand"
       meta-touch-controls="hand: left; model: true"
       laser-controls="hand: left"
-      raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .gun-grabbable, .global-menu-btn; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
       gun-grab="gripOffsetRotation: -30 0 0"
@@ -399,7 +405,7 @@
       id="rightHand"
       meta-touch-controls="hand: right; model: true"
       laser-controls="hand: right"
-      raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .gun-grabbable, .global-menu-btn; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
       gun-grab="gripOffsetRotation: -30 0 0"
@@ -505,7 +511,7 @@
       id="leftHand"
       meta-touch-controls="hand: left; model: true"
       laser-controls="hand: left"
-      raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .gun-grabbable, .global-menu-btn; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
       gun-grab="gripOffsetRotation: -30 0 0"
@@ -519,7 +525,7 @@
       id="rightHand"
       meta-touch-controls="hand: right; model: true"
       laser-controls="hand: right"
-      raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .gun-grabbable, .global-menu-btn; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
       gun-grab="gripOffsetRotation: -30 0 0"
@@ -3708,6 +3714,8 @@
 
   var DYNAMIC_ATTRS = ['background', 'physics-world', 'impact-audio', 'target-spawner'];
 
+  var inMenu = true;
+
   function highlightOn(el)  { el.setAttribute('material', 'color', '#3bb4cc'); }
   function highlightOff(el) { el.setAttribute('material', 'color', '#4fc3d9'); }
 
@@ -3722,6 +3730,8 @@
   }
 
   function showMenu() {
+    inMenu = true;
+
     var content = document.getElementById('content');
     content.innerHTML = '';
     var tpl = document.getElementById('tpl-menu');
@@ -3753,21 +3763,28 @@
     });
   }
 
-  function wireGlobalMenuButton(camEl) {
-    if (!camEl) return;
-    camEl.setAttribute('cursor', 'fuse: true; fuseTimeout: 1200');
-    camEl.setAttribute('raycaster', 'objects: .global-menu-btn; far: 30');
-
+  // écouteurs posés UNE SEULE FOIS : le bouton "Menu" est permanent, il n'est
+  // jamais recréé entre deux exercices (contrairement au reste de la scène)
+  function initGlobalMenuButton() {
     var btn = document.getElementById('global-menu-btn');
     var ring = document.getElementById('global-menu-fuse-ring');
-    btn.setAttribute('visible', 'true');
 
     btn.addEventListener('mouseenter', function () { ring.setAttribute('visible', 'true'); });
     btn.addEventListener('mouseleave', function () { ring.setAttribute('visible', 'false'); });
     btn.addEventListener('click', function () {
       ring.setAttribute('visible', 'false');
-      returnToMenu();
+      if (!inMenu) returnToMenu();
     });
+  }
+
+  // rebranche le viseur "regard" sur la caméra actuellement active - se
+  // déclenche automatiquement à chaque changement de scène (menu ou
+  // n'importe quel exercice), donc pas besoin de deviner quand la nouvelle
+  // caméra est prête
+  function wireGazeCursor(camEl) {
+    if (!camEl) return;
+    camEl.setAttribute('cursor', 'fuse: true; fuseTimeout: 1200');
+    camEl.setAttribute('raycaster', 'objects: .global-menu-btn; far: 30');
   }
 
   function selectExercise(n) {
@@ -3777,7 +3794,8 @@
     var sceneEl = document.getElementById('scene');
     var content = document.getElementById('content');
 
-    document.getElementById('global-menu-btn').setAttribute('visible', 'false');
+    inMenu = false;
+    document.getElementById('global-menu-btn').setAttribute('visible', 'true');
 
     // message de chargement affiché directement dans la scène VR
     content.innerHTML = '';
@@ -3813,15 +3831,17 @@
       content.innerHTML = '';
       content.appendChild(tpl.content.cloneNode(true));
 
-      // attache le bouton flottant "retour au menu" à la caméra de cet exercice
-      var camEl = content.querySelector('[camera]');
-      wireGlobalMenuButton(camEl);
-
       document.getElementById('hint').style.display = 'none';
     }, 50);
   }
 
   document.addEventListener('DOMContentLoaded', function () {
+    initGlobalMenuButton();
+
+    document.getElementById('scene').addEventListener('camera-set-active', function (evt) {
+      wireGazeCursor(evt.detail.cameraEl);
+    });
+
     showMenu();
   });
 </script>

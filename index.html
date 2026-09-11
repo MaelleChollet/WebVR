@@ -13,11 +13,6 @@
   <script>
     // =========================================================
     // SYSTEME PHYSIQUE MAISON
-    // - Gravité + intégration linéaire ET angulaire
-    // - Collision sol / objets basée sur le vrai contour des formes
-    // - Impulsion + couple au contact -> bascule réaliste
-    // - "Grace period" après un lancer/tir : le frottement est
-    //   neutralisé quelques instants pour ne pas tuer l'élan
     // =========================================================
     AFRAME.registerSystem('physics-world', {
 
@@ -55,7 +50,6 @@
 
         for (let s = 0; s < subSteps; s++) {
 
-          // 1) Gravité + intégration linéaire ET angulaire + contact sol
           for (let i = 0; i < this.bodies.length; i++) {
             const body = this.bodies[i];
             if (body.kinematic) continue;
@@ -149,7 +143,6 @@
             body.angularVelocity.multiplyScalar(0.995);
           }
 
-          // 2) Collisions entre objets (contour réel selon la forme)
           for (let i = 0; i < this.bodies.length; i++) {
             for (let j = i + 1; j < this.bodies.length; j++) {
 
@@ -211,8 +204,6 @@
 
     });
 
-    // Composant physique générique (box / sphère / cylindre).
-    // Utilisé par le sol des objets, l'arme ET les balles tirées.
     AFRAME.registerComponent('physics-body', {
 
       schema: {
@@ -343,12 +334,17 @@
 
     // =========================================================
     // Mouvement avec le joystick gauche
+    // FIX : le signe de l'axe Y était inversé par rapport à ce
+    // que renvoie réellement le matériel testé -> corrigé.
+    // "invertForward" permet de re-basculer sans toucher au code
+    // si un autre casque/navigateur donne l'axe dans l'autre sens.
     // =========================================================
     AFRAME.registerComponent('left-thumbstick-move', {
 
       schema: {
         rig: { type: 'selector' },
-        speed: { type: 'number', default: 2.0 }
+        speed: { type: 'number', default: 2.0 },
+        invertForward: { type: 'boolean', default: false }
       },
 
       init: function () {
@@ -369,7 +365,10 @@
         if (!delta) return;
 
         const x = this.axisX;
-        const z = -this.axisY;
+
+        // Avant corrigé (plus de négation par défaut, cf. test réel)
+        let z = this.axisY;
+        if (this.data.invertForward) z = -z;
 
         if (Math.abs(x) < 0.05 && Math.abs(z) < 0.05) return;
 
@@ -417,7 +416,7 @@
 
 
     // =========================================================
-    // Curseur visuel pour le laser (détecte aussi l'arme)
+    // Curseur visuel pour le laser
     // =========================================================
     AFRAME.registerComponent('laser-cursor', {
 
@@ -519,7 +518,6 @@
 
       startGrab: function () {
 
-        // Cette main tient déjà l'arme -> on n'attrape pas un autre objet
         const gunGrab = this.el.components['gun-grab'];
         if (gunGrab && gunGrab.heldGun) {
           return;
@@ -712,23 +710,19 @@
 
 
     // =========================================================
-    // NOUVEAU : Grab + tir de l'arme
-    // - gripdown / gripup : tenir / lâcher l'arme
-    // - triggerdown : tirer un projectile (si l'arme est tenue)
+    // Grab + tir de l'arme (grip = tenir, trigger = tirer)
     // =========================================================
     AFRAME.registerComponent('gun-grab', {
 
       schema: {
-        // pose de préhension fixe : le canon reste toujours aligné
-        // avec l'avant du contrôleur, quel que soit le point de saisie
         gripOffsetPosition: { type: 'vec3', default: { x: 0, y: -0.02, z: 0.05 } },
-        gripOffsetRotation: { type: 'vec3', default: { x: 0, y: 0, z: 0 } }, // degrés
+        gripOffsetRotation: { type: 'vec3', default: { x: 0, y: 0, z: 0 } },
 
-        bulletSpeed: { type: 'number', default: 20 },   // vitesse initiale du projectile (m/s)
+        bulletSpeed: { type: 'number', default: 20 },
         bulletRadius: { type: 'number', default: 0.035 },
         bulletColor: { type: 'color', default: '#FFD54A' },
-        bulletLifetime: { type: 'number', default: 4 }, // secondes avant suppression
-        fireCooldown: { type: 'number', default: 0.15 } // anti-rafale involontaire
+        bulletLifetime: { type: 'number', default: 4 },
+        fireCooldown: { type: 'number', default: 0.15 }
       },
 
       init: function () {
@@ -748,9 +742,13 @@
 
       startGrabGun: function () {
 
-        // Cette main tient déjà un objet normal -> on n'attrape pas l'arme
+        console.log('GRIP DOWN — tentative de saisie de l\'arme');
+
         const laserGrab = this.el.components['laser-grab'];
-        if (laserGrab && laserGrab.grabbed) return;
+        if (laserGrab && laserGrab.grabbed) {
+          console.log('Main déjà occupée par un autre objet');
+          return;
+        }
 
         if (this.heldGun) return;
 
@@ -758,7 +756,10 @@
         if (!raycaster) return;
 
         const intersections = raycaster.intersections;
-        if (!intersections || intersections.length === 0) return;
+        if (!intersections || intersections.length === 0) {
+          console.log('Grip pressé mais aucune arme visée par le laser');
+          return;
+        }
 
         let target = null;
 
@@ -775,7 +776,10 @@
           }
         }
 
-        if (!target) return;
+        if (!target) {
+          console.log('Aucune arme grabbable visée');
+          return;
+        }
 
         console.log('GUN GRAB:', target.id);
 
@@ -841,7 +845,6 @@
         const gunWorldQuat = new THREE.Quaternion();
         this.heldGun.object3D.getWorldQuaternion(gunWorldQuat);
 
-        // Le canon "pointe" vers l'avant local -Z (convention A-Frame/three.js)
         const forward = new THREE.Vector3(0, 0, -1)
           .applyQuaternion(gunWorldQuat)
           .normalize();
@@ -879,8 +882,6 @@
 
         scene.appendChild(bullet);
 
-        // On attend que le composant physics-body soit bien initialisé
-        // avant de lui donner sa vitesse (= la "force" initiale du tir).
         bullet.addEventListener('loaded', () => {
           const body = bullet.components['physics-body'];
           if (body) {
@@ -889,7 +890,6 @@
           }
         });
 
-        // Nettoyage automatique pour ne pas accumuler des dizaines de balles
         setTimeout(() => {
           if (bullet.parentNode) {
             bullet.parentNode.removeChild(bullet);
@@ -909,7 +909,6 @@
         this.el.object3D.getWorldPosition(controllerPos);
         this.el.object3D.getWorldQuaternion(controllerQuat);
 
-        // vitesse de la main (pour un éventuel lancer de l'arme au relâchement)
         if (this.hasPrevPosition && dt > 0) {
           const instantVelocity = new THREE.Vector3()
             .subVectors(controllerPos, this.prevControllerPosition)
@@ -921,7 +920,6 @@
         this.prevControllerPosition.copy(controllerPos);
         this.hasPrevPosition = true;
 
-        // Offset de préhension FIXE (pas le point de saisie initial)
         const offsetPos = new THREE.Vector3(
           this.data.gripOffsetPosition.x,
           this.data.gripOffsetPosition.y,
@@ -961,7 +959,6 @@
     });
 
 
-    // Debug des contrôleurs
     AFRAME.registerComponent('controller-debug', {
 
       init: function () {
@@ -1002,11 +999,6 @@
 >
 
   <!--
-    Pour utiliser un vrai modèle 3D téléchargé (voir les liens dans
-    l'explication), décommente ceci et remplace les primitives de
-    l'entité #gun plus bas par : gltf-model="#gunModel"
-  -->
-  <!--
   <a-assets>
     <a-asset-item id="gunModel" src="models/gun.glb"></a-asset-item>
   </a-assets>
@@ -1040,7 +1032,7 @@
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
       gun-grab
-      left-thumbstick-move="rig: #rig; speed: 2.0"
+      left-thumbstick-move="rig: #rig; speed: 2.0; invertForward: false"
       controller-debug
       line="color: #00FFFF; opacity: 0.8"
     >
@@ -1099,17 +1091,17 @@
   </a-cylinder>
 
   <!--
-    ARME : construite avec des primitives (aucun fichier externe requis).
-    L'entité ".muzzle" (invisible) marque le point de sortie de la balle,
-    au bout du canon. Pour un vrai modèle .glb, remplace les <a-box>/
-    <a-cylinder> enfants par gltf-model="#gunModel" et repositionne
-    ".muzzle" pour qu'il corresponde au bout du canon du modèle importé.
+    ARME. FIX : ajout d'une boîte invisible plus grande sur #gun,
+    servant de cible pour le laser/raycaster -> beaucoup plus facile
+    à viser/attraper que les petites pièces visuelles individuelles.
   -->
   <a-entity
     id="gun"
     class="gun-grabbable"
-    position="0.3 1 -1.5"
+    position="0.3 1 -1.2"
     rotation="0 200 0"
+    geometry="primitive: box; width: 0.22; height: 0.26; depth: 0.42"
+    material="opacity: 0; transparent: true"
     physics-body="shape: box; width: 0.08; height: 0.16; depth: 0.32; restitution: 0.1; friction: 0.5"
   >
     <a-box class="gun-part" width="0.06" height="0.10" depth="0.22"
@@ -1124,7 +1116,6 @@
     <a-box class="gun-part" width="0.035" height="0.03" depth="0.05"
            color="#555555" position="0 0.09 0.05"></a-box>
 
-    <!-- point de sortie de la balle, au bout du canon -->
     <a-entity class="muzzle" position="0 0.02 -0.28"></a-entity>
   </a-entity>
 

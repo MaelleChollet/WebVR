@@ -16,7 +16,9 @@
     // - Gravité + intégration linéaire ET angulaire
     // - Collision sol / objets basée sur le vrai contour des formes
     // - Impulsion + COUPLE au contact -> bascule réaliste (tipping)
-    //   quand un objet tombe sur une arête
+    // - "Grace period" après un lancer : le frottement est neutralisé
+    //   quelques instants pour ne pas tuer instantanément l'élan si
+    //   l'objet touche le sol juste après avoir été relâché
     // =========================================================
     AFRAME.registerSystem('physics-world', {
 
@@ -50,6 +52,7 @@
 
         const LINEAR_SLEEP_EPS = 0.03;
         const ANGULAR_SLEEP_EPS = 0.12;
+        const SLEEP_DELAY = 0.25; // secondes sous le seuil avant de vraiment figer l'objet
 
         for (let s = 0; s < subSteps; s++) {
 
@@ -60,6 +63,11 @@
 
             const pos = body.el.object3D.position;
             const quat = body.el.object3D.quaternion;
+
+            // décrémente la période de grâce post-lancer
+            if (body.justThrownTimer > 0) {
+              body.justThrownTimer = Math.max(0, body.justThrownTimer - subDt);
+            }
 
             // --- gravité ---
             body.velocity.y += this.data.gravity * subDt;
@@ -78,16 +86,14 @@
             }
 
             // --- contact avec le sol : point de contact réel + couple ---
-            const contactLocal = body.getSupportPointLocal(DOWN); // point de contact, repère local
-            const r = contactLocal.clone().applyQuaternion(quat); // bras de levier, repère monde
+            const contactLocal = body.getSupportPointLocal(DOWN);
+            const r = contactLocal.clone().applyQuaternion(quat);
             const contactWorldY = pos.y + r.y;
 
             if (contactWorldY < 0) {
 
-              // on remonte l'objet pour que le point de contact touche pile le sol
               pos.y -= contactWorldY;
 
-              // vitesse du point de contact = vitesse linéaire + vitesse due à la rotation
               const pointVelocity = body.velocity.clone().add(
                 body.angularVelocity.clone().cross(r)
               );
@@ -96,7 +102,7 @@
 
               if (vAlongNormal < 0) {
 
-                const invMass = 1; // masse = 1 pour tous les objets (simplifié)
+                const invMass = 1;
                 const invInertia = 1 / body.inertia;
 
                 const rxn = r.clone().cross(UP);
@@ -110,45 +116,50 @@
                   r.clone().cross(impulse).multiplyScalar(invInertia)
                 );
 
-                // --- frottement (avec couple => l'objet peut rouler/basculer) ---
-                const tangentVel = pointVelocity.clone().sub(UP.clone().multiplyScalar(vAlongNormal));
-                const tangentSpeed = tangentVel.length();
+                // --- frottement, DÉSACTIVÉ pendant la période de grâce ---
+                if (body.justThrownTimer <= 0) {
 
-                if (tangentSpeed > 0.0001) {
-                  const tangentDir = tangentVel.clone().divideScalar(tangentSpeed);
-                  const maxFriction = body.data.friction * Math.abs(j);
-                  const frictionMag = Math.min(tangentSpeed * invMass, maxFriction);
-                  const frictionImpulse = tangentDir.multiplyScalar(-frictionMag);
+                  const tangentVel = pointVelocity.clone().sub(UP.clone().multiplyScalar(vAlongNormal));
+                  const tangentSpeed = tangentVel.length();
 
-                  body.velocity.add(frictionImpulse.clone().multiplyScalar(invMass));
-                  body.angularVelocity.add(
-                    r.clone().cross(frictionImpulse).multiplyScalar(invInertia)
-                  );
+                  if (tangentSpeed > 0.0001) {
+                    const tangentDir = tangentVel.clone().divideScalar(tangentSpeed);
+                    const maxFriction = body.data.friction * Math.abs(j);
+                    const frictionMag = Math.min(tangentSpeed * invMass, maxFriction);
+                    const frictionImpulse = tangentDir.multiplyScalar(-frictionMag);
+
+                    body.velocity.add(frictionImpulse.clone().multiplyScalar(invMass));
+                    body.angularVelocity.add(
+                      r.clone().cross(frictionImpulse).multiplyScalar(invInertia)
+                    );
+                  }
                 }
               }
 
-              // amortissement au repos pour stabiliser
               body.angularVelocity.multiplyScalar(0.9);
 
-              // "endormissement" : si presque immobile au sol, on fige tout
-              // (évite le tremblement numérique une fois la face stable trouvée)
+              // --- endormissement avec hystérésis : il faut être lent
+              // PENDANT UN CERTAIN TEMPS avant d'être vraiment figé, pour
+              // ne pas tuer un lancer en une seule frame de contact ---
               if (
                 body.velocity.length() < LINEAR_SLEEP_EPS &&
                 body.angularVelocity.length() < ANGULAR_SLEEP_EPS
               ) {
-                body.velocity.set(0, 0, 0);
-                body.angularVelocity.set(0, 0, 0);
+                body.restTime += subDt;
+                if (body.restTime > SLEEP_DELAY) {
+                  body.velocity.set(0, 0, 0);
+                  body.angularVelocity.set(0, 0, 0);
+                }
+              } else {
+                body.restTime = 0;
               }
             }
 
-            // amortissement général (air) pour éviter les dérives numériques
             body.velocity.multiplyScalar(0.999);
             body.angularVelocity.multiplyScalar(0.995);
           }
 
-          // 2) Collisions entre objets (contour réel selon la forme, sans couple
-          // pour rester stable -> ils se repoussent linéairement, sans tipping
-          // mutuel, ce qui reste très correct visuellement).
+          // 2) Collisions entre objets (contour réel selon la forme)
           for (let i = 0; i < this.bodies.length; i++) {
             for (let j = i + 1; j < this.bodies.length; j++) {
 
@@ -214,14 +225,12 @@
     AFRAME.registerComponent('physics-body', {
 
       schema: {
-        shape: { type: 'string', default: 'box' }, // 'box' | 'sphere' | 'cylinder'
+        shape: { type: 'string', default: 'box' },
 
-        // Box
         width: { type: 'number', default: 1 },
         height: { type: 'number', default: 1 },
         depth: { type: 'number', default: 1 },
 
-        // Sphère & cylindre
         radius: { type: 'number', default: 0.5 },
 
         restitution: { type: 'number', default: 0.15 },
@@ -231,7 +240,10 @@
       init: function () {
         this.velocity = new THREE.Vector3(0, 0, 0);
         this.angularVelocity = new THREE.Vector3(0, 0, 0);
-        this.kinematic = false; // true pendant qu'on tient l'objet dans la main
+        this.kinematic = false;
+
+        this.justThrownTimer = 0; // période de grâce (frottement désactivé)
+        this.restTime = 0;        // hystérésis avant endormissement
 
         this._invQuat = new THREE.Quaternion();
         this._dirLocal = new THREE.Vector3();
@@ -242,16 +254,13 @@
         this.system.registerBody(this);
       },
 
-      // Moment d'inertie scalaire approximatif (masse = 1), selon la forme.
-      // Détermine la "résistance à la rotation" -> plus l'objet est gros,
-      // plus il tourne lentement pour un même couple, comme en vrai.
       computeInertia: function () {
 
         const data = this.data;
         let inertia;
 
         if (data.shape === 'sphere') {
-          inertia = 0.4 * data.radius * data.radius; // (2/5) m r^2
+          inertia = 0.4 * data.radius * data.radius;
         } else if (data.shape === 'cylinder') {
           const ixx = (3 * data.radius * data.radius + data.height * data.height) / 12;
           const iyy = (data.radius * data.radius) / 2;
@@ -264,11 +273,9 @@
           inertia = (ixx + iyy + izz) / 3;
         }
 
-        return Math.max(inertia, 0.02); // évite une inertie proche de 0
+        return Math.max(inertia, 0.02);
       },
 
-      // Distance entre le centre et le contour, dans une direction donnée
-      // (repère monde), selon la forme ET la rotation actuelle.
       getExtentAlongDirection: function (dirWorld) {
 
         const data = this.data;
@@ -305,10 +312,6 @@
         return data.radius;
       },
 
-      // Point de la surface (repère LOCAL, non tourné) atteint dans la
-      // direction donnée (repère monde). Sert à trouver le vrai point de
-      // contact (ex : le coin d'un cube posé sur une arête) pour calculer
-      // le bras de levier et donc le couple de bascule.
       getSupportPointLocal: function (dirWorld) {
 
         const data = this.data;
@@ -334,7 +337,7 @@
 
         if (data.shape === 'cylinder') {
           const extent = this.getExtentAlongDirection(dirWorld);
-          return dirLocal.multiplyScalar(extent); // approximation raisonnable
+          return dirLocal.multiplyScalar(extent);
         }
 
         return dirLocal.multiplyScalar(data.radius);
@@ -348,7 +351,7 @@
 
 
     // =========================================================
-    // Mouvement avec le joystick gauche (avant/arrière/gauche/droite)
+    // Mouvement avec le joystick gauche
     // =========================================================
     AFRAME.registerComponent('left-thumbstick-move', {
 
@@ -374,7 +377,6 @@
         if (!this.data.rig) return;
         if (!delta) return;
 
-        // A-Frame donne : y < 0 = avant, y > 0 = arrière
         const x = this.axisX;
         const z = -this.axisY;
 
@@ -489,8 +491,7 @@
 
 
     // =========================================================
-    // Grab avec le laser + trigger (position ET rotation du poignet
-    // capturées pour un lancer réaliste : trajectoire en courbe + spin)
+    // Grab avec le laser + trigger
     // =========================================================
     AFRAME.registerComponent('laser-grab', {
 
@@ -509,16 +510,13 @@
         this.tempPosition = new THREE.Vector3();
         this.tempQuaternion = new THREE.Quaternion();
 
-        // --- historique pour la vitesse LINÉAIRE de lancer ---
         this.prevControllerPosition = new THREE.Vector3();
         this.hasPrevPosition = false;
         this.velocityHistory = [];
 
-        // --- historique pour la vitesse ANGULAIRE de lancer (spin) ---
         this.prevControllerQuaternion = new THREE.Quaternion();
         this.hasPrevQuaternion = false;
         this.angularVelocityHistory = [];
-        // --------------------------------------------------------
 
         this.el.addEventListener('triggerdown', () => this.startGrab());
         this.el.addEventListener('triggerup', () => this.endGrab());
@@ -608,25 +606,32 @@
 
         const object = this.grabbed;
 
-        // Vitesse linéaire moyenne du contrôleur -> vitesse initiale du lancer
         const throwVelocity = new THREE.Vector3();
         if (this.velocityHistory.length > 0) {
           this.velocityHistory.forEach((v) => throwVelocity.add(v));
           throwVelocity.divideScalar(this.velocityHistory.length);
         }
 
-        // Vitesse angulaire moyenne du poignet -> spin donné à l'objet
         const throwAngularVelocity = new THREE.Vector3();
         if (this.angularVelocityHistory.length > 0) {
           this.angularVelocityHistory.forEach((v) => throwAngularVelocity.add(v));
           throwAngularVelocity.divideScalar(this.angularVelocityHistory.length);
         }
 
+        // Log de debug : vérifie ces valeurs dans la console (F12).
+        // Si elles sont proches de (0,0,0), c'est que la main du
+        // contrôleur n'a pas vraiment bougé pendant le geste (souvent
+        // parce que le test se fait sans casque VR / hors mode VR réel).
+        console.log('THROW linear velocity:', throwVelocity);
+        console.log('THROW angular velocity:', throwAngularVelocity);
+
         const body = object.components['physics-body'];
         if (body) {
           body.kinematic = false;
           body.velocity.copy(throwVelocity);
           body.angularVelocity.copy(throwAngularVelocity);
+          body.justThrownTimer = 0.15; // grâce anti-frottement de 150ms
+          body.restTime = 0;
         }
 
         object.classList.remove('grabbed');
@@ -647,7 +652,6 @@
 
         const dt = delta / 1000;
 
-        // --- vitesse linéaire instantanée du contrôleur ---
         if (this.hasPrevPosition && dt > 0) {
           const instantVelocity = new THREE.Vector3()
             .subVectors(this.controllerPosition, this.prevControllerPosition)
@@ -659,13 +663,11 @@
         this.prevControllerPosition.copy(this.controllerPosition);
         this.hasPrevPosition = true;
 
-        // --- vitesse angulaire instantanée du contrôleur (rotation du poignet) ---
         if (this.hasPrevQuaternion && dt > 0) {
 
           const deltaQuat = this.controllerQuaternion.clone()
             .multiply(this.prevControllerQuaternion.clone().invert());
 
-          // conversion quaternion delta -> axe*angle
           const w = THREE.MathUtils.clamp(deltaQuat.w, -1, 1);
           let angle = 2 * Math.acos(w);
           if (angle > Math.PI) angle -= 2 * Math.PI;
@@ -682,7 +684,6 @@
         }
         this.prevControllerQuaternion.copy(this.controllerQuaternion);
         this.hasPrevQuaternion = true;
-        // -----------------------------------------------------------------------
 
         this.tempPosition
           .copy(this.localPosition)

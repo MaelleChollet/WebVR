@@ -1,110 +1,90 @@
+```html
 <!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  >
 
   <title>VR - Grab & Movement</title>
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
 
-  <!-- A-Frame Extras -->
+  <!-- Composants supplémentaires A-Frame -->
   <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
 
   <script>
-
-    /* =========================================================
-       1. MOUVEMENT AVEC LE STICK GAUCHE
-       ========================================================= */
+    /*
+     * ============================================================
+     * DÉPLACEMENT AVEC LE STICK GAUCHE
+     * ============================================================
+     *
+     * Le stick gauche permet de déplacer le joueur.
+     * Le déplacement est relatif à l'orientation actuelle du rig.
+     */
 
     AFRAME.registerComponent('left-thumbstick-move', {
-
       schema: {
         rig: { type: 'selector' },
         speed: { type: 'number', default: 2.0 }
       },
 
-      init: function () {
-
+      init() {
         this.axisX = 0;
         this.axisY = 0;
 
         this.onThumbstick = this.onThumbstick.bind(this);
 
-        this.el.addEventListener(
-          'thumbstickmoved',
-          this.onThumbstick
-        );
+        this.el.addEventListener('thumbstickmoved', this.onThumbstick);
       },
 
-      onThumbstick: function (event) {
-
+      onThumbstick(event) {
         this.axisX = event.detail.x || 0;
         this.axisY = event.detail.y || 0;
-
       },
 
-      tick: function (time, delta) {
-
-        if (!this.data.rig) return;
-
-        if (!delta) return;
-
-        /*
-         * A-Frame donne :
-         * y < 0 = avant
-         * y > 0 = arrière
-         */
+      tick(time, delta) {
+        if (!this.data.rig || !delta) return;
 
         const x = this.axisX;
         const z = -this.axisY;
 
-        if (Math.abs(x) < 0.05 && Math.abs(z) < 0.05) {
-          return;
-        }
+        // Évite les petits mouvements involontaires du joystick.
+        if (Math.abs(x) < 0.05 && Math.abs(z) < 0.05) return;
 
         const dt = delta / 1000;
 
-        /*
-         * Direction locale
-         */
-        const direction = new THREE.Vector3(
-          x,
-          0,
-          z
-        );
+        // Direction locale du joueur.
+        const direction = new THREE.Vector3(x, 0, z);
 
-        /*
-         * On applique la rotation du rig
-         * pour que "avant" corresponde à la direction
-         * du joueur.
-         */
+        // Transforme la direction locale en direction mondiale.
         direction.applyAxisAngle(
           new THREE.Vector3(0, 1, 0),
           this.data.rig.object3D.rotation.y
         );
 
-        /*
-         * Déplacement
-         */
+        // Déplace le rig.
         this.data.rig.object3D.position.x +=
           direction.x * this.data.speed * dt;
 
         this.data.rig.object3D.position.z +=
           direction.z * this.data.speed * dt;
       }
-
     });
 
 
-    /* =========================================================
-       2. ROTATION AVEC LE STICK DROIT
-       ========================================================= */
+    /*
+     * ============================================================
+     * ROTATION AVEC LE STICK DROIT
+     * ============================================================
+     *
+     * Le stick droit permet de tourner le joueur horizontalement.
+     */
 
     AFRAME.registerComponent('joystick-turn', {
-
       schema: {
         speed: {
           type: 'number',
@@ -112,86 +92,57 @@
         }
       },
 
-      init: function () {
-
+      init() {
         this.axisX = 0;
 
-        this.el.addEventListener(
-          'thumbstickmoved',
-          (event) => {
-            this.axisX = event.detail.x || 0;
-          }
-        );
+        this.el.addEventListener('thumbstickmoved', (event) => {
+          this.axisX = event.detail.x || 0;
+        });
       },
 
-      tick: function (time, delta) {
-
-        if (!delta) return;
-
-        if (Math.abs(this.axisX) < 0.1) {
-          return;
-        }
+      tick(time, delta) {
+        if (!delta || Math.abs(this.axisX) < 0.1) return;
 
         const dt = delta / 1000;
 
-        /*
-         * Rotation du rig
-         */
         this.el.parentEl.object3D.rotation.y -=
           this.axisX * this.data.speed * dt;
       }
-
     });
 
 
-    /* =========================================================
-       3. PETIT POINT AU BOUT DU LASER
-       ========================================================= */
+    /*
+     * ============================================================
+     * CURSEUR DU LASER
+     * ============================================================
+     *
+     * Affiche un petit point à l'endroit où le laser touche
+     * un objet pouvant être attrapé.
+     */
 
     AFRAME.registerComponent('laser-cursor', {
-
       schema: {
         color: {
           type: 'color',
-          default: '#00FFFF'
+          default: '#B8A7FF'
         }
       },
 
-      init: function () {
-
+      init() {
         this.cursor = document.createElement('a-sphere');
 
-        this.cursor.setAttribute(
-          'radius',
-          '0.018'
-        );
-
-        this.cursor.setAttribute(
-          'color',
-          this.data.color
-        );
-
-        this.cursor.setAttribute(
-          'visible',
-          'false'
-        );
-
+        this.cursor.setAttribute('radius', '0.018');
+        this.cursor.setAttribute('color', this.data.color);
+        this.cursor.setAttribute('visible', 'false');
         this.cursor.setAttribute(
           'material',
           'shader: flat; opacity: 0.95'
         );
 
-        this.el.sceneEl.appendChild(
-          this.cursor
-        );
+        this.el.sceneEl.appendChild(this.cursor);
 
-
-        this.onIntersection =
-          this.onIntersection.bind(this);
-
-        this.onClear =
-          this.onClear.bind(this);
-
+        this.onIntersection = this.onIntersection.bind(this);
+        this.onClear = this.onClear.bind(this);
 
         this.el.addEventListener(
           'raycaster-intersection',
@@ -204,54 +155,18 @@
         );
       },
 
+      onIntersection(event) {
+        const raycaster = this.el.components.raycaster;
 
-      onIntersection: function (event) {
+        if (!raycaster || !raycaster.intersections.length) return;
 
-        const raycaster =
-          this.el.components.raycaster;
+        const hit = raycaster.intersections[0];
 
-        if (!raycaster) return;
+        if (!hit?.point || !hit.object?.el) return;
 
-        const intersections =
-          raycaster.intersections;
+        // Remonte la hiérarchie pour retrouver l'objet grabbable.
+        let target = hit.object.el;
 
-        if (
-          !intersections ||
-          intersections.length === 0
-        ) {
-          return;
-        }
-
-
-        const hit =
-          intersections[0];
-
-        if (!hit || !hit.point) {
-          return;
-        }
-
-
-        /*
-         * Vérification :
-         * on ne montre le point que sur un objet
-         * portant la classe .grabbable
-         */
-        if (
-          !hit.object ||
-          !hit.object.el
-        ) {
-          return;
-        }
-
-
-        let target =
-          hit.object.el;
-
-
-        /*
-         * Si on touche un mesh enfant,
-         * on remonte jusqu'à l'entité .grabbable
-         */
         while (
           target &&
           !target.classList.contains('grabbable') &&
@@ -260,42 +175,21 @@
           target = target.parentEl;
         }
 
-
-        if (
-          !target ||
-          !target.classList.contains('grabbable')
-        ) {
-          this.cursor.setAttribute(
-            'visible',
-            'false'
-          );
-
+        // Le curseur reste caché si la cible n'est pas grabbable.
+        if (!target?.classList.contains('grabbable')) {
+          this.cursor.setAttribute('visible', 'false');
           return;
         }
 
-
-        this.cursor.object3D.position.copy(
-          hit.point
-        );
-
-        this.cursor.setAttribute(
-          'visible',
-          'true'
-        );
+        this.cursor.object3D.position.copy(hit.point);
+        this.cursor.setAttribute('visible', 'true');
       },
 
-
-      onClear: function () {
-
-        this.cursor.setAttribute(
-          'visible',
-          'false'
-        );
+      onClear() {
+        this.cursor.setAttribute('visible', 'false');
       },
 
-
-      remove: function () {
-
+      remove() {
         if (this.cursor) {
           this.cursor.remove();
         }
@@ -310,175 +204,87 @@
           this.onClear
         );
       }
-
     });
 
 
-    /* =========================================================
-       4. GRAB AVEC LE LASER + TRIGGER
-       ========================================================= */
+    /*
+     * ============================================================
+     * GRAB AVEC LE LASER
+     * ============================================================
+     *
+     * Le trigger permet d'attraper un objet grabbable.
+     * L'objet conserve sa position et sa rotation relatives
+     * à la manette pendant qu'il est tenu.
+     */
 
     AFRAME.registerComponent('laser-grab', {
-
       schema: {
         rig: {
           type: 'selector'
         }
       },
 
-
-      init: function () {
-
+      init() {
         this.grabbed = null;
 
-        /*
-         * Position de l'objet par rapport à la manette
-         */
-        this.localPosition =
-          new THREE.Vector3();
+        // Transformations relatives objet <-> contrôleur.
+        this.localPosition = new THREE.Vector3();
+        this.localQuaternion = new THREE.Quaternion();
 
-        /*
-         * Rotation de l'objet par rapport à la manette
-         */
-        this.localQuaternion =
-          new THREE.Quaternion();
+        // Transformations du contrôleur.
+        this.controllerPosition = new THREE.Vector3();
+        this.controllerQuaternion = new THREE.Quaternion();
 
+        // Transformations temporaires.
+        this.tempPosition = new THREE.Vector3();
+        this.tempQuaternion = new THREE.Quaternion();
 
-        this.controllerPosition =
-          new THREE.Vector3();
+        this.el.addEventListener('triggerdown', () => {
+          this.startGrab();
+        });
 
-        this.controllerQuaternion =
-          new THREE.Quaternion();
-
-
-        this.tempPosition =
-          new THREE.Vector3();
-
-        this.tempQuaternion =
-          new THREE.Quaternion();
-
-
-        /*
-         * Trigger
-         */
-        this.el.addEventListener(
-          'triggerdown',
-          () => {
-            this.startGrab();
-          }
-        );
-
-
-        this.el.addEventListener(
-          'triggerup',
-          () => {
-            this.endGrab();
-          }
-        );
+        this.el.addEventListener('triggerup', () => {
+          this.endGrab();
+        });
       },
 
-
-      startGrab: function () {
-
-        console.log(
-          'TRIGGER DOWN'
-        );
-
-
-        const raycaster =
-          this.el.components.raycaster;
-
+      startGrab() {
+        const raycaster = this.el.components.raycaster;
 
         if (!raycaster) {
-
-          console.warn(
-            'Raycaster absent'
-          );
-
+          console.warn('Raycaster absent.');
           return;
         }
 
+        const intersections = raycaster.intersections;
 
-        const intersections =
-          raycaster.intersections;
+        if (!intersections.length) return;
 
-
-        if (
-          !intersections ||
-          intersections.length === 0
-        ) {
-
-          console.log(
-            'Trigger pressé mais aucun objet'
-          );
-
-          return;
-        }
-
-
-        /*
-         * On cherche le premier objet grabbable
-         */
+        // Recherche du premier objet grabbable touché par le laser.
         let target = null;
 
-
-        for (
-          let i = 0;
-          i < intersections.length;
-          i++
-        ) {
-
-          let candidate =
-            intersections[i].object &&
-            intersections[i].object.el;
-
+        for (const intersection of intersections) {
+          let candidate = intersection.object?.el;
 
           while (
             candidate &&
             !candidate.classList.contains('grabbable') &&
             candidate.parentEl
           ) {
-
-            candidate =
-              candidate.parentEl;
+            candidate = candidate.parentEl;
           }
 
-
-          if (
-            candidate &&
-            candidate.classList.contains('grabbable')
-          ) {
-
+          if (candidate?.classList.contains('grabbable')) {
             target = candidate;
             break;
           }
         }
 
-
-        if (!target) {
-
-          console.log(
-            'Aucun objet grabbable'
-          );
-
-          return;
-        }
-
-
-        console.log(
-          'GRAB:',
-          target.id
-        );
-
+        if (!target) return;
 
         this.grabbed = target;
 
-
-        /*
-         * On récupère les transformations
-         * mondiales du contrôleur.
-         */
-
+        // Transformation mondiale de la manette.
         this.el.object3D.getWorldPosition(
           this.controllerPosition
         );
@@ -487,29 +293,14 @@
           this.controllerQuaternion
         );
 
+        // Transformation mondiale de l'objet.
+        const objectWorldPosition = new THREE.Vector3();
+        const objectWorldQuaternion = new THREE.Quaternion();
 
-        /*
-         * Transformation mondiale de l'objet
-         */
-        const objectWorldPosition =
-          new THREE.Vector3();
+        target.object3D.getWorldPosition(objectWorldPosition);
+        target.object3D.getWorldQuaternion(objectWorldQuaternion);
 
-        const objectWorldQuaternion =
-          new THREE.Quaternion();
-
-
-        target.object3D.getWorldPosition(
-          objectWorldPosition
-        );
-
-        target.object3D.getWorldQuaternion(
-          objectWorldQuaternion
-        );
-
-
-        /*
-         * Position relative manette -> objet
-         */
+        // Position relative objet -> manette.
         this.localPosition
           .copy(objectWorldPosition)
           .sub(this.controllerPosition)
@@ -517,160 +308,77 @@
             this.controllerQuaternion.clone().invert()
           );
 
-
-        /*
-         * Rotation relative
-         */
+        // Rotation relative objet -> manette.
         this.localQuaternion
           .copy(this.controllerQuaternion)
           .invert()
-          .multiply(
-            objectWorldQuaternion
-          );
+          .multiply(objectWorldQuaternion);
 
-
-        /*
-         * On désactive la gravité
-         */
-        const gravity =
-          target.components['simple-gravity'];
+        // Désactive la gravité pendant que l'objet est tenu.
+        const gravity = target.components['simple-gravity'];
 
         if (gravity) {
           gravity.data.enabled = false;
         }
 
-
-        /*
-         * État visuel
-         */
-        target.classList.add(
-          'grabbed'
-        );
-
-
-        target.emit(
-          'grab-start'
-        );
+        target.classList.add('grabbed');
+        target.emit('grab-start');
       },
 
+      endGrab() {
+        if (!this.grabbed) return;
 
-      endGrab: function () {
+        const object = this.grabbed;
 
-        if (!this.grabbed) {
-          return;
-        }
-
-
-        console.log(
-          'TRIGGER UP'
-        );
-
-
-        const object =
-          this.grabbed;
-
-
-        /*
-         * On réactive la gravité
-         */
-        const gravity =
-          object.components['simple-gravity'];
+        // Réactive la gravité lorsque l'objet est lâché.
+        const gravity = object.components['simple-gravity'];
 
         if (gravity) {
           gravity.data.enabled = true;
-
-          /*
-           * On remet la vitesse verticale à zéro
-           * pour que l'objet tombe proprement.
-           */
           gravity.velocity = 0;
         }
 
-
-        object.classList.remove(
-          'grabbed'
-        );
-
-
-        object.emit(
-          'grab-end'
-        );
-
+        object.classList.remove('grabbed');
+        object.emit('grab-end');
 
         this.grabbed = null;
       },
 
+      tick() {
+        if (!this.grabbed) return;
 
-      tick: function () {
+        const object = this.grabbed.object3D;
 
-        if (!this.grabbed) {
-          return;
-        }
-
-
-        const object =
-          this.grabbed.object3D;
-
-
-        /*
-         * Position mondiale du contrôleur
-         */
+        // Récupère la transformation mondiale actuelle de la manette.
         this.el.object3D.getWorldPosition(
           this.controllerPosition
         );
 
-
-        /*
-         * Rotation mondiale du contrôleur
-         */
         this.el.object3D.getWorldQuaternion(
           this.controllerQuaternion
         );
 
-
-        /*
-         * Nouvelle position de l'objet
-         */
+        // Calcule la nouvelle position mondiale de l'objet.
         this.tempPosition
           .copy(this.localPosition)
-          .applyQuaternion(
-            this.controllerQuaternion
-          )
-          .add(
-            this.controllerPosition
-          );
+          .applyQuaternion(this.controllerQuaternion)
+          .add(this.controllerPosition);
 
-
-        /*
-         * Nouvelle rotation
-         */
+        // Calcule la nouvelle rotation mondiale de l'objet.
         this.tempQuaternion
           .copy(this.controllerQuaternion)
-          .multiply(
-            this.localQuaternion
-          );
-
+          .multiply(this.localQuaternion);
 
         /*
-         * Si l'objet est enfant du rig,
-         * on convertit en coordonnées locales
+         * Conversion des coordonnées mondiales vers les
+         * coordonnées locales du parent de l'objet.
          */
         if (object.parent) {
+          const parentWorldPosition = new THREE.Vector3();
+          const parentWorldQuaternion = new THREE.Quaternion();
 
-          const parentWorldPosition =
-            new THREE.Vector3();
-
-          const parentWorldQuaternion =
-            new THREE.Quaternion();
-
-          object.parent.getWorldPosition(
-            parentWorldPosition
-          );
-
-          object.parent.getWorldQuaternion(
-            parentWorldQuaternion
-          );
-
+          object.parent.getWorldPosition(parentWorldPosition);
+          object.parent.getWorldQuaternion(parentWorldQuaternion);
 
           object.position
             .copy(this.tempPosition)
@@ -679,30 +387,27 @@
               parentWorldQuaternion.clone().invert()
             );
 
-
           object.quaternion
             .copy(
               parentWorldQuaternion.clone().invert()
             )
-            .multiply(
-              this.tempQuaternion
-            );
-
+            .multiply(this.tempQuaternion);
         }
-
       }
-
     });
 
 
-    /* =========================================================
-       5. GRAVITÉ SIMPLE
-       ========================================================= */
+    /*
+     * ============================================================
+     * GRAVITÉ SIMPLE
+     * ============================================================
+     *
+     * Applique une gravité basique aux objets et les empêche
+     * de traverser le sol.
+     */
 
     AFRAME.registerComponent('simple-gravity', {
-
       schema: {
-
         enabled: {
           type: 'boolean',
           default: true
@@ -717,348 +422,244 @@
           type: 'number',
           default: -9.81
         }
-
       },
 
-
-      init: function () {
-
+      init() {
         this.velocity = 0;
-
       },
 
+      tick(time, delta) {
+        if (!this.data.enabled || !delta) return;
 
-      tick: function (time, delta) {
+        const dt = Math.min(delta / 1000, 0.05);
 
-        if (!this.data.enabled) {
-          return;
-        }
+        // Accélération verticale.
+        this.velocity += this.data.gravity * dt;
 
+        const position = this.el.object3D.position;
 
-        if (!delta) {
-          return;
-        }
+        // Application du déplacement vertical.
+        position.y += this.velocity * dt;
 
-
-        const dt =
-          Math.min(delta / 1000, 0.05);
-
-
-        /*
-         * Gravité
-         */
-        this.velocity +=
-          this.data.gravity * dt;
-
-
-        /*
-         * Déplacement
-         */
-        const position =
-          this.el.object3D.position;
-
-
-        position.y +=
-          this.velocity * dt;
-
-
-        /*
-         * Sol
-         */
-        const floor =
-          this.data.halfHeight;
-
-
-        /*
-         * Collision avec le sol
-         */
-        if (position.y <= floor) {
-
-          position.y = floor;
-
+        // Empêche l'objet de passer sous le sol.
+        if (position.y <= this.data.halfHeight) {
+          position.y = this.data.halfHeight;
           this.velocity = 0;
         }
-
       }
-
     });
 
 
-    /* =========================================================
-       6. DEBUG DES MANETTES
-       ========================================================= */
+    /*
+     * ============================================================
+     * DEBUG DES CONTRÔLEURS
+     * ============================================================
+     *
+     * Permet de vérifier rapidement les événements envoyés
+     * par les manettes pendant le développement.
+     */
 
     AFRAME.registerComponent('controller-debug', {
+      init() {
+        this.el.addEventListener('triggerdown', () => {
+          console.log('Trigger DOWN →', this.el.id);
+        });
 
-      init: function () {
+        this.el.addEventListener('triggerup', () => {
+          console.log('Trigger UP →', this.el.id);
+        });
 
-        this.el.addEventListener(
-          'triggerdown',
-          () => {
-            console.log(
-              'DEBUG → TRIGGER DOWN',
-              this.el.id
-            );
-          }
-        );
-
-
-        this.el.addEventListener(
-          'triggerup',
-          () => {
-            console.log(
-              'DEBUG → TRIGGER UP',
-              this.el.id
-            );
-          }
-        );
-
-
-        this.el.addEventListener(
-          'thumbstickmoved',
-          (event) => {
-
-            console.log(
-              'STICK',
-              this.el.id,
-              event.detail.x,
-              event.detail.y
-            );
-
-          }
-        );
+        this.el.addEventListener('thumbstickmoved', (event) => {
+          console.log(
+            'Stick →',
+            this.el.id,
+            'X:',
+            event.detail.x,
+            'Y:',
+            event.detail.y
+          );
+        });
       }
-
     });
-
   </script>
 </head>
 
-
 <body>
 
-<a-scene
-  background="color: #111111"
-  renderer="antialias: true"
-  vr-mode-ui="enabled: true"
->
-
-
-  <!-- =======================================================
-       LUMIÈRES
-       ======================================================= -->
-
-  <a-entity
-    light="type: ambient; intensity: 0.7">
-  </a-entity>
-
-  <a-entity
-    light="type: directional; intensity: 1"
-    position="-2 5 3">
-  </a-entity>
-
-
-  <!-- =======================================================
-       SOL
-       ======================================================= -->
-
-  <a-plane
-    position="0 0 0"
-    rotation="-90 0 0"
-    width="20"
-    height="20"
-    color="#4CAF50">
-  </a-plane>
-
-
-  <!-- =======================================================
-       RIG
-       ======================================================= -->
-
-  <a-entity
-    id="rig"
-    position="0 0 2"
+  <a-scene
+    background="color: #101426"
+    renderer="antialias: true"
+    vr-mode-ui="enabled: true"
   >
 
-
-    <!-- =====================================================
-         CAMERA
-         ===================================================== -->
-
-    <a-camera
-      id="camera"
-      position="0 1.6 0"
-      look-controls="enabled: true">
-    </a-camera>
-
-
-    <!-- =====================================================
-         MAIN GAUCHE
-         ===================================================== -->
+    <!-- Éclairage général de la scène -->
+    <a-entity
+      light="type: ambient; intensity: 0.8"
+    ></a-entity>
 
     <a-entity
-      id="leftHand"
+      light="type: directional; intensity: 1.2"
+      position="-3 6 4"
+    ></a-entity>
 
-      meta-touch-controls="
-        hand: left;
-        model: true
-      "
 
-      laser-controls="
-        hand: left
-      "
+    <!-- Sol -->
+    <a-plane
+      position="0 0 0"
+      rotation="-90 0 0"
+      width="20"
+      height="20"
+      color="#34495E"
+    ></a-plane>
 
-      raycaster="
-        objects: .grabbable;
-        far: 10;
-        interval: 0
-      "
 
-      laser-cursor="
-        color: #00FFFF
-      "
-
-      laser-grab="
-        rig: #rig
-      "
-
-      left-thumbstick-move="
-        rig: #rig;
-        speed: 2.0
-      "
-
-      controller-debug
-
-      line="
-        color: #00FFFF;
-        opacity: 0.8
-      "
+    <!-- Joueur -->
+    <a-entity
+      id="rig"
+      position="0 0 2"
     >
+
+      <!-- Caméra -->
+      <a-camera
+        id="camera"
+        position="0 1.6 0"
+        look-controls="enabled: true"
+      ></a-camera>
+
+
+      <!-- Manette gauche : déplacement -->
+      <a-entity
+        id="leftHand"
+
+        meta-touch-controls="
+          hand: left;
+          model: true
+        "
+
+        laser-controls="
+          hand: left
+        "
+
+        raycaster="
+          objects: .grabbable;
+          far: 10;
+          interval: 0
+        "
+
+        laser-cursor="
+          color: #A78BFA
+        "
+
+        laser-grab="
+          rig: #rig
+        "
+
+        left-thumbstick-move="
+          rig: #rig;
+          speed: 2.0
+        "
+
+        controller-debug
+
+        line="
+          color: #8B7CF6;
+          opacity: 0.75
+        "
+      ></a-entity>
+
+
+      <!-- Manette droite : rotation -->
+      <a-entity
+        id="rightHand"
+
+        meta-touch-controls="
+          hand: right;
+          model: true
+        "
+
+        laser-controls="
+          hand: right
+        "
+
+        raycaster="
+          objects: .grabbable;
+          far: 10;
+          interval: 0
+        "
+
+        laser-cursor="
+          color: #67E8F9
+        "
+
+        laser-grab="
+          rig: #rig
+        "
+
+        joystick-turn="
+          speed: 1.8
+        "
+
+        controller-debug
+
+        line="
+          color: #67E8F9;
+          opacity: 0.75
+        "
+      ></a-entity>
+
     </a-entity>
 
 
-    <!-- =====================================================
-         MAIN DROITE
-         ===================================================== -->
+    <!-- ======================================================
+         OBJETS INTERACTIFS
+         ====================================================== -->
 
-    <a-entity
-      id="rightHand"
-
-      meta-touch-controls="
-        hand: right;
-        model: true
+    <!-- Cube -->
+    <a-box
+      id="box"
+      class="grabbable"
+      position="-1 0.5 -2"
+      width="1"
+      height="1"
+      depth="1"
+      color="#F6A6A6"
+      simple-gravity="
+        halfHeight: 0.5;
+        gravity: -9.81
       "
+    ></a-box>
 
-      laser-controls="
-        hand: right
+
+    <!-- Sphère -->
+    <a-sphere
+      id="sphere"
+      class="grabbable"
+      position="0 0.5 -2"
+      radius="0.5"
+      color="#A5B4FC"
+      simple-gravity="
+        halfHeight: 0.5;
+        gravity: -9.81
       "
+    ></a-sphere>
 
-      raycaster="
-        objects: .grabbable;
-        far: 10;
-        interval: 0
+
+    <!-- Cylindre -->
+    <a-cylinder
+      id="cylinder"
+      class="grabbable"
+      position="1 0.5 -2"
+      radius="0.5"
+      height="1"
+      color="#FDE68A"
+      simple-gravity="
+        halfHeight: 0.5;
+        gravity: -9.81
       "
+    ></a-cylinder>
 
-      laser-cursor="
-        color: #00FFFF
-      "
-
-      laser-grab="
-        rig: #rig
-      "
-
-      joystick-turn="
-        speed: 1.8
-      "
-
-      controller-debug
-
-      line="
-        color: #00FFFF;
-        opacity: 0.8
-      "
-    >
-    </a-entity>
-
-  </a-entity>
-
-
-  <!-- =======================================================
-       OBJETS GRABBABLES
-       ======================================================= -->
-
-
-  <!-- BOX -->
-
-  <a-box
-    id="box"
-    class="grabbable"
-
-    position="-1 0.5 -2"
-
-    width="1"
-    height="1"
-    depth="1"
-
-    color="#FF4444"
-
-    simple-gravity="
-      halfHeight: 0.5;
-      gravity: -9.81
-    "
-  >
-  </a-box>
-
-
-  <!-- SPHÈRE -->
-
-  <a-sphere
-    id="sphere"
-    class="grabbable"
-
-    position="0 0.5 -2"
-
-    radius="0.5"
-
-    color="#4444FF"
-
-    simple-gravity="
-      halfHeight: 0.5;
-      gravity: -9.81
-    "
-  >
-  </a-sphere>
-
-
-  <!-- CYLINDRE -->
-
-  <a-cylinder
-    id="cylinder"
-    class="grabbable"
-
-    position="1 0.5 -2"
-
-    radius="0.5"
-    height="1"
-
-    color="#FFFF00"
-
-    simple-gravity="
-      halfHeight: 0.5;
-      gravity: -9.81
-    "
-  >
-  </a-cylinder>
-
-
-  <!-- =======================================================
-       CIEL
-       ======================================================= -->
-
-  <a-sky color="#222222"></a-sky>
-
-
-</a-scene>
+  </a-scene>
 
 </body>
 </html>
+```

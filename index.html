@@ -249,13 +249,19 @@
                 <!-- Main gauche : déplacement -->
                 <a-entity
                 id="leftHand"
-                oculus-touch-controls="hand: left">
+                oculus-touch-controls="hand: left"
+                raycaster="objects: .global-menu-btn; far: 20"
+                cursor="rayOrigin: entity; fuse: false; downEvents: triggerdown; upEvents: triggerup"
+                line="color: #4fc3d9; opacity: 0.6">
                 </a-entity>
 
                 <!-- Main droite : rotation -->
                 <a-entity
                 id="rightHand"
-                oculus-touch-controls="hand: right">
+                oculus-touch-controls="hand: right"
+                raycaster="objects: .global-menu-btn; far: 20"
+                cursor="rayOrigin: entity; fuse: false; downEvents: triggerdown; upEvents: triggerup"
+                line="color: #4fc3d9; opacity: 0.6">
                 </a-entity>
 
             </a-entity>

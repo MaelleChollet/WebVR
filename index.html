@@ -47,19 +47,6 @@
             renderer="antialias: true"
             shadow="type: pcfsoft; autoUpdate: true"
             webxr="optionalFeatures: local-floor">
-
-            <!--
-              Lumière directionnelle avec ombres de haute qualité.
-              - shadowMapWidth/Height : résolution de la texture d'ombre (2048 = net).
-              - shadowCameraLeft/Right/Top/Bottom : recadre le frustum de la caméra
-                d'ombre autour de la zone où se trouvent les objets (par défaut c'est
-                beaucoup trop large -> chaque pixel d'ombre couvre une grande surface
-                -> ombres pixelisées/baveuses). Ici on le resserre sur -8/8 en x/y.
-              - shadowCameraNear/Far : idem, on colle aux distances réelles de la scène
-                pour gagner en précision de profondeur.
-              - shadowBias : évite le "shadow acne" (artefacts type moiré).
-              - shadowRadius : adoucit les bords de l'ombre (flou), avec pcfsoft.
-            -->
             <a-entity
                 light="type: directional;
                        intensity: 1;

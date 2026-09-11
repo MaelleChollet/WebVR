@@ -5,7 +5,7 @@
   <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-  <title>VR - Grab & Movement</title>
+  <title>VR - Grab, Movement & Weapon</title>
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
@@ -15,10 +15,9 @@
     // SYSTEME PHYSIQUE MAISON
     // - Gravité + intégration linéaire ET angulaire
     // - Collision sol / objets basée sur le vrai contour des formes
-    // - Impulsion + COUPLE au contact -> bascule réaliste (tipping)
-    // - "Grace period" après un lancer : le frottement est neutralisé
-    //   quelques instants pour ne pas tuer instantanément l'élan si
-    //   l'objet touche le sol juste après avoir été relâché
+    // - Impulsion + couple au contact -> bascule réaliste
+    // - "Grace period" après un lancer/tir : le frottement est
+    //   neutralisé quelques instants pour ne pas tuer l'élan
     // =========================================================
     AFRAME.registerSystem('physics-world', {
 
@@ -52,32 +51,28 @@
 
         const LINEAR_SLEEP_EPS = 0.03;
         const ANGULAR_SLEEP_EPS = 0.12;
-        const SLEEP_DELAY = 0.25; // secondes sous le seuil avant de vraiment figer l'objet
+        const SLEEP_DELAY = 0.25;
 
         for (let s = 0; s < subSteps; s++) {
 
           // 1) Gravité + intégration linéaire ET angulaire + contact sol
           for (let i = 0; i < this.bodies.length; i++) {
             const body = this.bodies[i];
-            if (body.kinematic) continue; // objet tenu en main -> pas de physique
+            if (body.kinematic) continue;
 
             const pos = body.el.object3D.position;
             const quat = body.el.object3D.quaternion;
 
-            // décrémente la période de grâce post-lancer
             if (body.justThrownTimer > 0) {
               body.justThrownTimer = Math.max(0, body.justThrownTimer - subDt);
             }
 
-            // --- gravité ---
             body.velocity.y += this.data.gravity * subDt;
 
-            // --- intégration position ---
             pos.x += body.velocity.x * subDt;
             pos.y += body.velocity.y * subDt;
             pos.z += body.velocity.z * subDt;
 
-            // --- intégration rotation (vitesse angulaire monde) ---
             const angSpeed = body.angularVelocity.length();
             if (angSpeed > 0.0001) {
               const axis = body.angularVelocity.clone().normalize();
@@ -85,7 +80,6 @@
               quat.premultiply(deltaQuat);
             }
 
-            // --- contact avec le sol : point de contact réel + couple ---
             const contactLocal = body.getSupportPointLocal(DOWN);
             const r = contactLocal.clone().applyQuaternion(quat);
             const contactWorldY = pos.y + r.y;
@@ -116,7 +110,6 @@
                   r.clone().cross(impulse).multiplyScalar(invInertia)
                 );
 
-                // --- frottement, DÉSACTIVÉ pendant la période de grâce ---
                 if (body.justThrownTimer <= 0) {
 
                   const tangentVel = pointVelocity.clone().sub(UP.clone().multiplyScalar(vAlongNormal));
@@ -138,9 +131,6 @@
 
               body.angularVelocity.multiplyScalar(0.9);
 
-              // --- endormissement avec hystérésis : il faut être lent
-              // PENDANT UN CERTAIN TEMPS avant d'être vraiment figé, pour
-              // ne pas tuer un lancer en une seule frame de contact ---
               if (
                 body.velocity.length() < LINEAR_SLEEP_EPS &&
                 body.angularVelocity.length() < ANGULAR_SLEEP_EPS
@@ -221,7 +211,8 @@
 
     });
 
-    // Composant à attacher à chaque objet grabbable/physique.
+    // Composant physique générique (box / sphère / cylindre).
+    // Utilisé par le sol des objets, l'arme ET les balles tirées.
     AFRAME.registerComponent('physics-body', {
 
       schema: {
@@ -242,8 +233,8 @@
         this.angularVelocity = new THREE.Vector3(0, 0, 0);
         this.kinematic = false;
 
-        this.justThrownTimer = 0; // période de grâce (frottement désactivé)
-        this.restTime = 0;        // hystérésis avant endormissement
+        this.justThrownTimer = 0;
+        this.restTime = 0;
 
         this._invQuat = new THREE.Quaternion();
         this._dirLocal = new THREE.Vector3();
@@ -426,7 +417,7 @@
 
 
     // =========================================================
-    // Curseur visuel pour le laser
+    // Curseur visuel pour le laser (détecte aussi l'arme)
     // =========================================================
     AFRAME.registerComponent('laser-cursor', {
 
@@ -450,6 +441,10 @@
         this.el.addEventListener('raycaster-intersection-cleared', this.onClear);
       },
 
+      isPickable: function (el) {
+        return el.classList.contains('grabbable') || el.classList.contains('gun-grabbable');
+      },
+
       onIntersection: function (event) {
 
         const raycaster = this.el.components.raycaster;
@@ -464,11 +459,11 @@
 
         let target = hit.object.el;
 
-        while (target && !target.classList.contains('grabbable') && target.parentEl) {
+        while (target && !this.isPickable(target) && target.parentEl) {
           target = target.parentEl;
         }
 
-        if (!target || !target.classList.contains('grabbable')) {
+        if (!target || !this.isPickable(target)) {
           this.cursor.setAttribute('visible', 'false');
           return;
         }
@@ -491,7 +486,7 @@
 
 
     // =========================================================
-    // Grab avec le laser + trigger
+    // Grab générique (box/sphère/cylindre) avec le laser + trigger
     // =========================================================
     AFRAME.registerComponent('laser-grab', {
 
@@ -523,6 +518,12 @@
       },
 
       startGrab: function () {
+
+        // Cette main tient déjà l'arme -> on n'attrape pas un autre objet
+        const gunGrab = this.el.components['gun-grab'];
+        if (gunGrab && gunGrab.heldGun) {
+          return;
+        }
 
         console.log('TRIGGER DOWN');
 
@@ -618,19 +619,12 @@
           throwAngularVelocity.divideScalar(this.angularVelocityHistory.length);
         }
 
-        // Log de debug : vérifie ces valeurs dans la console (F12).
-        // Si elles sont proches de (0,0,0), c'est que la main du
-        // contrôleur n'a pas vraiment bougé pendant le geste (souvent
-        // parce que le test se fait sans casque VR / hors mode VR réel).
-        console.log('THROW linear velocity:', throwVelocity);
-        console.log('THROW angular velocity:', throwAngularVelocity);
-
         const body = object.components['physics-body'];
         if (body) {
           body.kinematic = false;
           body.velocity.copy(throwVelocity);
           body.angularVelocity.copy(throwAngularVelocity);
-          body.justThrownTimer = 0.15; // grâce anti-frottement de 150ms
+          body.justThrownTimer = 0.15;
           body.restTime = 0;
         }
 
@@ -717,6 +711,256 @@
     });
 
 
+    // =========================================================
+    // NOUVEAU : Grab + tir de l'arme
+    // - gripdown / gripup : tenir / lâcher l'arme
+    // - triggerdown : tirer un projectile (si l'arme est tenue)
+    // =========================================================
+    AFRAME.registerComponent('gun-grab', {
+
+      schema: {
+        // pose de préhension fixe : le canon reste toujours aligné
+        // avec l'avant du contrôleur, quel que soit le point de saisie
+        gripOffsetPosition: { type: 'vec3', default: { x: 0, y: -0.02, z: 0.05 } },
+        gripOffsetRotation: { type: 'vec3', default: { x: 0, y: 0, z: 0 } }, // degrés
+
+        bulletSpeed: { type: 'number', default: 20 },   // vitesse initiale du projectile (m/s)
+        bulletRadius: { type: 'number', default: 0.035 },
+        bulletColor: { type: 'color', default: '#FFD54A' },
+        bulletLifetime: { type: 'number', default: 4 }, // secondes avant suppression
+        fireCooldown: { type: 'number', default: 0.15 } // anti-rafale involontaire
+      },
+
+      init: function () {
+
+        this.heldGun = null;
+
+        this.prevControllerPosition = new THREE.Vector3();
+        this.hasPrevPosition = false;
+        this.velocityHistory = [];
+
+        this.lastShotTime = 0;
+
+        this.el.addEventListener('gripdown', () => this.startGrabGun());
+        this.el.addEventListener('gripup', () => this.endGrabGun());
+        this.el.addEventListener('triggerdown', () => this.tryFire());
+      },
+
+      startGrabGun: function () {
+
+        // Cette main tient déjà un objet normal -> on n'attrape pas l'arme
+        const laserGrab = this.el.components['laser-grab'];
+        if (laserGrab && laserGrab.grabbed) return;
+
+        if (this.heldGun) return;
+
+        const raycaster = this.el.components.raycaster;
+        if (!raycaster) return;
+
+        const intersections = raycaster.intersections;
+        if (!intersections || intersections.length === 0) return;
+
+        let target = null;
+
+        for (let i = 0; i < intersections.length; i++) {
+          let candidate = intersections[i].object && intersections[i].object.el;
+
+          while (candidate && !candidate.classList.contains('gun-grabbable') && candidate.parentEl) {
+            candidate = candidate.parentEl;
+          }
+
+          if (candidate && candidate.classList.contains('gun-grabbable')) {
+            target = candidate;
+            break;
+          }
+        }
+
+        if (!target) return;
+
+        console.log('GUN GRAB:', target.id);
+
+        this.heldGun = target;
+
+        const body = target.components['physics-body'];
+        if (body) {
+          body.kinematic = true;
+          body.velocity.set(0, 0, 0);
+          body.angularVelocity.set(0, 0, 0);
+        }
+
+        this.velocityHistory = [];
+        this.hasPrevPosition = false;
+
+        target.classList.add('grabbed');
+        target.emit('grab-start');
+      },
+
+      endGrabGun: function () {
+
+        if (!this.heldGun) return;
+
+        const object = this.heldGun;
+
+        const throwVelocity = new THREE.Vector3();
+        if (this.velocityHistory.length > 0) {
+          this.velocityHistory.forEach((v) => throwVelocity.add(v));
+          throwVelocity.divideScalar(this.velocityHistory.length);
+        }
+
+        const body = object.components['physics-body'];
+        if (body) {
+          body.kinematic = false;
+          body.velocity.copy(throwVelocity);
+          body.justThrownTimer = 0.15;
+          body.restTime = 0;
+        }
+
+        object.classList.remove('grabbed');
+        object.emit('grab-end');
+
+        this.heldGun = null;
+      },
+
+      tryFire: function () {
+
+        if (!this.heldGun) return;
+
+        const now = performance.now();
+        if (now - this.lastShotTime < this.data.fireCooldown * 1000) return;
+        this.lastShotTime = now;
+
+        const muzzle = this.heldGun.querySelector('.muzzle');
+        if (!muzzle) {
+          console.warn('Pas de point de sortie (.muzzle) trouvé sur l\'arme');
+          return;
+        }
+
+        const muzzleWorldPos = new THREE.Vector3();
+        muzzle.object3D.getWorldPosition(muzzleWorldPos);
+
+        const gunWorldQuat = new THREE.Quaternion();
+        this.heldGun.object3D.getWorldQuaternion(gunWorldQuat);
+
+        // Le canon "pointe" vers l'avant local -Z (convention A-Frame/three.js)
+        const forward = new THREE.Vector3(0, 0, -1)
+          .applyQuaternion(gunWorldQuat)
+          .normalize();
+
+        this.spawnBullet(muzzleWorldPos, forward);
+
+        this.heldGun.emit('gun-fired');
+        console.log('FIRE from', this.el.id, '| direction:', forward);
+      },
+
+      spawnBullet: function (position, direction) {
+
+        const scene = this.el.sceneEl;
+        const bullet = document.createElement('a-entity');
+
+        bullet.setAttribute('geometry', {
+          primitive: 'sphere',
+          radius: this.data.bulletRadius
+        });
+
+        bullet.setAttribute('material', {
+          color: this.data.bulletColor,
+          shader: 'flat'
+        });
+
+        bullet.setAttribute('position', position);
+        bullet.classList.add('bullet');
+
+        bullet.setAttribute('physics-body', {
+          shape: 'sphere',
+          radius: this.data.bulletRadius,
+          restitution: 0.2,
+          friction: 0.3
+        });
+
+        scene.appendChild(bullet);
+
+        // On attend que le composant physics-body soit bien initialisé
+        // avant de lui donner sa vitesse (= la "force" initiale du tir).
+        bullet.addEventListener('loaded', () => {
+          const body = bullet.components['physics-body'];
+          if (body) {
+            body.velocity.copy(direction.clone().multiplyScalar(this.data.bulletSpeed));
+            body.justThrownTimer = 0.1;
+          }
+        });
+
+        // Nettoyage automatique pour ne pas accumuler des dizaines de balles
+        setTimeout(() => {
+          if (bullet.parentNode) {
+            bullet.parentNode.removeChild(bullet);
+          }
+        }, this.data.bulletLifetime * 1000);
+      },
+
+      tick: function (time, delta) {
+
+        if (!this.heldGun) return;
+        if (!delta) return;
+
+        const dt = delta / 1000;
+
+        const controllerPos = new THREE.Vector3();
+        const controllerQuat = new THREE.Quaternion();
+        this.el.object3D.getWorldPosition(controllerPos);
+        this.el.object3D.getWorldQuaternion(controllerQuat);
+
+        // vitesse de la main (pour un éventuel lancer de l'arme au relâchement)
+        if (this.hasPrevPosition && dt > 0) {
+          const instantVelocity = new THREE.Vector3()
+            .subVectors(controllerPos, this.prevControllerPosition)
+            .divideScalar(dt);
+
+          this.velocityHistory.push(instantVelocity);
+          if (this.velocityHistory.length > 5) this.velocityHistory.shift();
+        }
+        this.prevControllerPosition.copy(controllerPos);
+        this.hasPrevPosition = true;
+
+        // Offset de préhension FIXE (pas le point de saisie initial)
+        const offsetPos = new THREE.Vector3(
+          this.data.gripOffsetPosition.x,
+          this.data.gripOffsetPosition.y,
+          this.data.gripOffsetPosition.z
+        );
+
+        const offsetEuler = new THREE.Euler(
+          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.x),
+          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.y),
+          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.z)
+        );
+        const offsetQuat = new THREE.Quaternion().setFromEuler(offsetEuler);
+
+        const worldPos = offsetPos.clone().applyQuaternion(controllerQuat).add(controllerPos);
+        const worldQuat = controllerQuat.clone().multiply(offsetQuat);
+
+        const object = this.heldGun.object3D;
+
+        if (object.parent) {
+
+          const parentPos = new THREE.Vector3();
+          const parentQuat = new THREE.Quaternion();
+          object.parent.getWorldPosition(parentPos);
+          object.parent.getWorldQuaternion(parentQuat);
+
+          object.position
+            .copy(worldPos)
+            .sub(parentPos)
+            .applyQuaternion(parentQuat.clone().invert());
+
+          object.quaternion
+            .copy(parentQuat.clone().invert())
+            .multiply(worldQuat);
+        }
+      }
+
+    });
+
+
     // Debug des contrôleurs
     AFRAME.registerComponent('controller-debug', {
 
@@ -728,6 +972,14 @@
 
         this.el.addEventListener('triggerup', () => {
           console.log('DEBUG → TRIGGER UP', this.el.id);
+        });
+
+        this.el.addEventListener('gripdown', () => {
+          console.log('DEBUG → GRIP DOWN', this.el.id);
+        });
+
+        this.el.addEventListener('gripup', () => {
+          console.log('DEBUG → GRIP UP', this.el.id);
         });
 
         this.el.addEventListener('thumbstickmoved', (event) => {
@@ -748,6 +1000,18 @@
   vr-mode-ui="enabled: true"
   physics-world="gravity: -9.81"
 >
+
+  <!--
+    Pour utiliser un vrai modèle 3D téléchargé (voir les liens dans
+    l'explication), décommente ceci et remplace les primitives de
+    l'entité #gun plus bas par : gltf-model="#gunModel"
+  -->
+  <!--
+  <a-assets>
+    <a-asset-item id="gunModel" src="models/gun.glb"></a-asset-item>
+  </a-assets>
+  -->
+
   <a-entity light="type: ambient; intensity: 0.7"></a-entity>
   <a-entity light="type: directional; intensity: 1; castShadow: true" position="-2 5 3"></a-entity>
 
@@ -772,9 +1036,10 @@
       id="leftHand"
       meta-touch-controls="hand: left; model: true"
       laser-controls="hand: left"
-      raycaster="objects: .grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
+      gun-grab
       left-thumbstick-move="rig: #rig; speed: 2.0"
       controller-debug
       line="color: #00FFFF; opacity: 0.8"
@@ -785,9 +1050,10 @@
       id="rightHand"
       meta-touch-controls="hand: right; model: true"
       laser-controls="hand: right"
-      raycaster="objects: .grabbable; far: 10; interval: 0"
+      raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
+      gun-grab
       joystick-turn="speed: 1.8"
       controller-debug
       line="color: #00FFFF; opacity: 0.8"
@@ -831,6 +1097,36 @@
     physics-body="shape: cylinder; radius: 0.5; height: 2; restitution: 0.1; friction: 0.4"
   >
   </a-cylinder>
+
+  <!--
+    ARME : construite avec des primitives (aucun fichier externe requis).
+    L'entité ".muzzle" (invisible) marque le point de sortie de la balle,
+    au bout du canon. Pour un vrai modèle .glb, remplace les <a-box>/
+    <a-cylinder> enfants par gltf-model="#gunModel" et repositionne
+    ".muzzle" pour qu'il corresponde au bout du canon du modèle importé.
+  -->
+  <a-entity
+    id="gun"
+    class="gun-grabbable"
+    position="0.3 1 -1.5"
+    rotation="0 200 0"
+    physics-body="shape: box; width: 0.08; height: 0.16; depth: 0.32; restitution: 0.1; friction: 0.5"
+  >
+    <a-box class="gun-part" width="0.06" height="0.10" depth="0.22"
+           color="#333333" position="0 0.02 0"></a-box>
+
+    <a-box class="gun-part" width="0.05" height="0.14" depth="0.06"
+           color="#222222" position="0 -0.09 0.06" rotation="18 0 0"></a-box>
+
+    <a-cylinder class="gun-part" radius="0.016" height="0.16"
+                color="#111111" position="0 0.02 -0.19" rotation="90 0 0"></a-cylinder>
+
+    <a-box class="gun-part" width="0.035" height="0.03" depth="0.05"
+           color="#555555" position="0 0.09 0.05"></a-box>
+
+    <!-- point de sortie de la balle, au bout du canon -->
+    <a-entity class="muzzle" position="0 0.02 -0.28"></a-entity>
+  </a-entity>
 
   <a-sky color="#FFFFFF"></a-sky>
 </a-scene>

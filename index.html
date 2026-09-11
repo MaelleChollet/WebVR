@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8">
+    <title>Exercice 2 - SceneVR - Grab & Release</title>
+
+    <!-- ===================================================== -->
+    <!-- A-FRAME -->
+    <!-- ===================================================== -->
+
+    <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+
+    <!--
+        A-Frame 1.5+ possède son propre composant "grabbable".
+        Super Hands possède également un composant "grabbable".
+
+        On supprime celui d'A-Frame pour éviter le conflit.
+    -->
+    <script>
+        delete AFRAME.components["grabbable"];
+    </script>
+
+    <!-- ===================================================== -->
+    <!-- MOVEMENT CONTROLS -->
+    <!-- ===================================================== -->
+
+    <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
+
+    <!-- ===================================================== -->
+    <!-- SUPER HANDS -->
+    <!-- ===================================================== -->
+
+    <script src="https://cdn.jsdelivr.net/npm/super-hands@5.0.4/dist/super-hands.min.js"></script>
+
+</head>
+
+
+<body>
+
+<script>
+
+/* ============================================================
+   ROTATION AVEC LE JOYSTICK DROIT
+   ============================================================ */
+
+AFRAME.registerComponent("joystick-turn", {
+
+    schema: {
+
+        rotationSpeed: {
+            type: "number",
+            default: 120
+        },
+
+        deadzone: {
+            type: "number",
+            default: 0.2
+        }
+
+    },
+
+    init: function () {
+
+        this.rotationInput = 0;
+
+        const rightHand =
+            document.querySelector("#rightHand");
+
+        if (!rightHand) {
+            console.warn("rightHand introuvable");
+            return;
+        }
+
+        rightHand.addEventListener(
+            "thumbstickmoved",
+            (evt) => {
+
+                const x = evt.detail.x;
+
+                if (Math.abs(x) > this.data.deadzone) {
+                    this.rotationInput = x;
+                }
+                else {
+                    this.rotationInput = 0;
+                }
+
+            }
+        );
+
+    },
+
+    tick: function (time, deltaTime) {
+
+        if (!this.rotationInput) {
+            return;
+        }
+
+        const rot =
+            this.el.getAttribute("rotation");
+
+        this.el.setAttribute("rotation", {
+
+            x: rot.x,
+
+            y:
+                rot.y -
+                this.rotationInput *
+                this.data.rotationSpeed *
+                deltaTime / 1000,
+
+            z: rot.z
+
+        });
+
+    }
+
+});
+
+
+/* ============================================================
+   GRAVITÉ SIMPLE
+   ============================================================ */
+
+AFRAME.registerComponent("custom-physics-grab", {
+
+    schema: {
+
+        floorY: {
+            type: "number",
+            default: 0
+        }
+
+    },
+
+    init: function () {
+
+        this.isGrabbed = false;
+
+        this.velocityY = 0;
+
+        this.gravity = -9.81;
+
+        /*
+         * On détermine approximativement la hauteur
+         * de l'objet pour qu'il se pose sur le sol.
+         */
+
+        this.halfHeight = 0.5;
+
+        const geometry =
+            this.el.getAttribute("geometry");
+
+        if (geometry) {
+
+            if (geometry.primitive === "sphere") {
+
+                this.halfHeight =
+                    geometry.radius || 0.5;
+
+            }
+
+            else if (
+                geometry.primitive === "cylinder"
+            ) {
+
+                this.halfHeight =
+                    (geometry.height || 1) / 2;
+
+            }
+
+            else if (
+                geometry.primitive === "box"
+            ) {
+
+                this.halfHeight =
+                    (geometry.height || 1) / 2;
+
+            }
+
+        }
+
+
+        /*
+         * Début du grab
+         */
+
+        this.el.addEventListener(
+            "grab-start",
+            () => {
+
+                this.isGrabbed = true;
+
+                /*
+                 * On annule la vitesse de chute
+                 * pendant que l'objet est tenu.
+                 */
+
+                this.velocityY = 0;
+
+            }
+        );
+
+
+        /*
+         * Fin du grab
+         */
+
+        this.el.addEventListener(
+            "grab-end",
+            () => {
+
+                this.isGrabbed = false;
+
+            }
+        );
+
+    },
+
+
+    tick: function (time, deltaTime) {
+
+        /*
+         * Pendant le grab, Super Hands
+         * s'occupe du déplacement.
+         */
+
+        if (this.isGrabbed) {
+            return;
+        }
+
+
+        const dt =
+            Math.min(deltaTime / 1000, 0.05);
+
+
+        const pos =
+            this.el.getAttribute("position");
+
+
+        /*
+         * Hauteur à laquelle l'objet touche le sol.
+         */
+
+        const targetY =
+            this.data.floorY +
+            this.halfHeight;
+
+
+        /*
+         * Si l'objet est au-dessus du sol,
+         * on applique la gravité.
+         */
+
+        if (pos.y > targetY) {
+
+            this.velocityY +=
+                this.gravity * dt;
+
+
+            let newY =
+                pos.y +
+                this.velocityY * dt;
+
+
+            /*
+             * Collision avec le sol.
+             */
+
+            if (newY <= targetY) {
+
+                newY = targetY;
+
+                this.velocityY = 0;
+
+            }
+
+
+            this.el.setAttribute(
+                "position",
+                {
+
+                    x: pos.x,
+
+                    y: newY,
+
+                    z: pos.z
+
+                }
+            );
+
+        }
+
+    }
+
+});
+
+
+/* ============================================================
+   PETIT POINT DU LASER
+   ============================================================ */
+
+AFRAME.registerComponent("laser-cursor", {
+
+    schema: {
+
+        color: {
+            type: "color",
+            default: "#FFFFFF"
+        }
+
+    },
+
+
+    init: function () {
+
+        /*
+         * Création du petit point.
+         */
+
+        this.cursorEl =
+            document.createElement("a-sphere");
+
+
+        this.cursorEl.setAttribute(
+            "radius",
+            0.012
+        );
+
+
+        this.cursorEl.setAttribute(
+            "material",
+            "shader: flat; color: " +
+            this.data.color
+        );
+
+
+        this.cursorEl.setAttribute(
+            "visible",
+            false
+        );
+
+
+        this.cursorEl.setAttribute(
+            "shadow",
+            "cast: false; receive: false"
+        );
+
+
+        /*
+         * On ajoute le point directement
+         * dans la scène.
+         */
+
+        this.el.sceneEl.appendChild(
+            this.cursorEl
+        );
+
+
+        /*
+         * Le laser touche un objet.
+         */
+
+        this.el.addEventListener(
+            "raycaster-intersection",
+            (evt) => {
+
+                if (
+                    !evt.detail.intersections ||
+                    evt.detail.intersections.length === 0
+                ) {
+                    return;
+                }
+
+
+                /*
+                 * Première intersection :
+                 * l'objet le plus proche.
+                 */
+
+                const intersection =
+                    evt.detail.intersections[0];
+
+
+                const point =
+                    intersection.point;
+
+
+                this.cursorEl.setAttribute(
+                    "visible",
+                    true
+                );
+
+
+                this.cursorEl.object3D.position.copy(
+                    point
+                );
+
+            }
+        );
+
+
+        /*
+         * Le laser ne touche plus l'objet.
+         */
+
+        this.el.addEventListener(
+            "raycaster-intersection-cleared",
+            () => {
+
+                this.cursorEl.setAttribute(
+                    "visible",
+                    false
+                );
+
+            }
+        );
+
+    }
+
+});
+
+
+/* ============================================================
+   DEBUG DES BOUTONS DU CONTRÔLEUR
+   ============================================================ */
+
+/*
+ * Ces logs sont utiles pour vérifier que le Quest 3
+ * reçoit bien le Trigger.
+ *
+ * Tu peux les supprimer après avoir testé.
+ */
+
+AFRAME.registerComponent("controller-debug", {
+
+    init: function () {
+
+        this.el.addEventListener(
+            "triggerdown",
+            () => {
+
+                console.log(
+                    "TRIGGER DOWN",
+                    this.el.id
+                );
+
+            }
+        );
+
+
+        this.el.addEventListener(
+            "triggerup",
+            () => {
+
+                console.log(
+                    "TRIGGER UP",
+                    this.el.id
+                );
+
+            }
+        );
+
+    }
+
+});
+
+</script>
+
+
+<!-- ========================================================= -->
+<!-- SCÈNE -->
+<!-- ========================================================= -->
+
+<a-scene
+
+    renderer="
+        antialias: true
+    "
+
+    shadow="
+        type: pcfsoft;
+        autoUpdate: true
+    "
+
+    webxr="
+        optionalFeatures: local-floor
+    ">
+
+
+    <!-- ===================================================== -->
+    <!-- LUMIÈRE DIRECTIONNELLE -->
+    <!-- ===================================================== -->
+
+    <a-entity
+
+        light="
+            type: directional;
+            intensity: 1;
+
+            castShadow: true;
+
+            shadowMapWidth: 2048;
+            shadowMapHeight: 2048;
+
+            shadowCameraLeft: -8;
+            shadowCameraRight: 8;
+
+            shadowCameraTop: 8;
+            shadowCameraBottom: -8;
+
+            shadowCameraNear: 0.5;
+            shadowCameraFar: 20;
+
+            shadowBias: -0.001;
+            shadowRadius: 1.5
+        "
+
+        position="3 6 2">
+
+    </a-entity>
+
+
+    <!-- ===================================================== -->
+    <!-- LUMIÈRE AMBIANTE -->
+    <!-- ===================================================== -->
+
+    <a-entity
+
+        light="
+            type: ambient;
+            intensity: 0.5;
+            color: #BBBBBB
+        ">
+
+    </a-entity>
+
+
+    <!-- ===================================================== -->
+    <!-- SOL -->
+    <!-- ===================================================== -->
+
+    <a-plane
+
+        rotation="-90 0 0"
+
+        width="20"
+
+        height="20"
+
+        color="#7BC8A4"
+
+        shadow="
+            receive: true
+        ">
+
+    </a-plane>
+
+
+    <!-- ===================================================== -->
+    <!-- CUBE -->
+    <!-- ===================================================== -->
+
+    <a-box
+
+        id="cube"
+
+        class="grabbable"
+
+        position="-2 3 -4"
+
+        rotation="0 45 0"
+
+        color="#4CC3D9"
+
+        shadow="
+            cast: true;
+            receive: true
+        "
+
+        grabbable
+
+        hoverable
+
+        custom-physics-grab="
+            floorY: 0
+        ">
+
+    </a-box>
+
+
+    <!-- ===================================================== -->
+    <!-- SPHÈRE -->
+    <!-- ===================================================== -->
+
+    <a-sphere
+
+        id="sphere"
+
+        class="grabbable"
+
+        position="2 4 -6"
+
+        radius="1.25"
+
+        color="#EF2D5E"
+
+        shadow="
+            cast: true;
+            receive: true
+        "
+
+        grabbable
+
+        hoverable
+
+        custom-physics-grab="
+            floorY: 0
+        ">
+
+    </a-sphere>
+
+
+    <!-- ===================================================== -->
+    <!-- CYLINDRE -->
+    <!-- ===================================================== -->
+
+    <a-cylinder
+
+        id="cylinder"
+
+        class="grabbable"
+
+        position="-2 5 -7"
+
+        radius="0.5"
+
+        height="2"
+
+        color="#FFC65D"
+
+        shadow="
+            cast: true;
+            receive: true
+        "
+
+        grabbable
+
+        hoverable
+
+        custom-physics-grab="
+            floorY: 0
+        ">
+
+    </a-cylinder>
+
+
+    <!-- ===================================================== -->
+    <!-- JOUEUR -->
+    <!-- ===================================================== -->
+
+    <a-entity
+
+        id="rig"
+
+        position="0 0 2"
+
+        movement-controls="
+            speed: 0.2;
+            fly: false
+        "
+
+        joystick-turn>
+
+
+        <!-- ================================================= -->
+        <!-- CAMÉRA -->
+        <!-- ================================================= -->
+
+        <a-entity
+
+            camera
+
+            position="0 1.6 0"
+
+            look-controls="
+                pointerLockEnabled: false
+            ">
+
+        </a-entity>
+
+
+        <!-- ================================================= -->
+        <!-- MAIN GAUCHE -->
+        <!-- ================================================= -->
+
+        <a-entity
+
+            id="leftHand"
+
+            meta-touch-controls="
+                hand: left
+            "
+
+            laser-controls="
+                hand: left
+            "
+
+            raycaster="
+                objects: .grabbable;
+                far: 10
+            "
+
+            super-hands="
+                colliderEvent: raycaster-intersection;
+                colliderEventProperty: els;
+
+                colliderEndEvent: raycaster-intersection-cleared;
+                colliderEndEventProperty: clearedEls;
+
+                grabStartButtons: triggerdown;
+                grabEndButtons: triggerup
+            "
+
+            laser-cursor="
+                color: #00FFFF
+            "
+
+            controller-debug
+
+            line="
+                color: #00FFFF
+            ">
+
+        </a-entity>
+
+
+        <!-- ================================================= -->
+        <!-- MAIN DROITE -->
+        <!-- ================================================= -->
+
+        <a-entity
+
+            id="rightHand"
+
+            meta-touch-controls="
+                hand: right
+            "
+
+            laser-controls="
+                hand: right
+            "
+
+            raycaster="
+                objects: .grabbable;
+                far: 10
+            "
+
+            super-hands="
+                colliderEvent: raycaster-intersection;
+                colliderEventProperty: els;
+
+                colliderEndEvent: raycaster-intersection-cleared;
+                colliderEndEventProperty: clearedEls;
+
+                grabStartButtons: triggerdown;
+                grabEndButtons: triggerup
+            "
+
+            laser-cursor="
+                color: #FF0000
+            "
+
+            controller-debug
+
+            line="
+                color: #FF0000
+            ">
+
+        </a-entity>
+
+
+    </a-entity>
+
+
+    <!-- ===================================================== -->
+    <!-- CIEL -->
+    <!-- ===================================================== -->
+
+    <a-sky
+
+        color="#ECECEC">
+
+    </a-sky>
+
+
+</a-scene>
+
+</body>
+</html>

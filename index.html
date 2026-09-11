@@ -84,11 +84,9 @@
 
         if (!delta) return;
 
-
         const x = this.axisX;
 
         const z = -this.axisY;
-
 
         if (
           Math.abs(x) < 0.05 &&
@@ -97,10 +95,8 @@
           return;
         }
 
-
         const dt =
           delta / 1000;
-
 
         const direction =
           new THREE.Vector3(
@@ -109,18 +105,15 @@
             z
           );
 
-
         direction.applyAxisAngle(
           new THREE.Vector3(0, 1, 0),
           this.data.rig.object3D.rotation.y
         );
 
-
         this.data.rig.object3D.position.x +=
           direction.x *
           this.data.speed *
           dt;
-
 
         this.data.rig.object3D.position.z +=
           direction.z *
@@ -153,7 +146,6 @@
 
         this.axisX = 0;
 
-
         this.el.addEventListener(
           'thumbstickmoved',
           (event) => {
@@ -171,17 +163,14 @@
 
         if (!delta) return;
 
-
         if (
           Math.abs(this.axisX) < 0.1
         ) {
           return;
         }
 
-
         const dt =
           delta / 1000;
-
 
         this.el.parentEl.object3D.rotation.y -=
           this.axisX *
@@ -215,49 +204,40 @@
         this.cursor =
           document.createElement('a-sphere');
 
-
         this.cursor.setAttribute(
           'radius',
           '0.018'
         );
-
 
         this.cursor.setAttribute(
           'color',
           this.data.color
         );
 
-
         this.cursor.setAttribute(
           'visible',
           'false'
         );
-
 
         this.cursor.setAttribute(
           'material',
           'shader: flat; opacity: 0.95'
         );
 
-
         this.el.sceneEl.appendChild(
           this.cursor
         );
 
-
         this.onIntersection =
           this.onIntersection.bind(this);
 
-
         this.onClear =
           this.onClear.bind(this);
-
 
         this.el.addEventListener(
           'raycaster-intersection',
           this.onIntersection
         );
-
 
         this.el.addEventListener(
           'raycaster-intersection-cleared',
@@ -272,13 +252,10 @@
         const raycaster =
           this.el.components.raycaster;
 
-
         if (!raycaster) return;
-
 
         const intersections =
           raycaster.intersections;
-
 
         if (
           !intersections ||
@@ -287,10 +264,8 @@
           return;
         }
 
-
         const hit =
           intersections[0];
-
 
         if (
           !hit ||
@@ -299,14 +274,12 @@
           return;
         }
 
-
         if (
           !hit.object ||
           !hit.object.el
         ) {
           return;
         }
-
 
         let target =
           hit.object.el;
@@ -395,14 +368,11 @@
     /* ============================================================
        4. MATÉRIAU PHYSIQUE
 
-       Très important :
-
        restitution = 0
+       => pas de rebond
 
-       => pas de rebond "balle".
-
-       friction élevée
-       => les objets ne glissent pas de manière excessive.
+       friction = 0.65
+       => moins de glissement
 
        Tous les objets + le sol utilisent le même matériau.
        ============================================================ */
@@ -421,10 +391,6 @@
         );
 
 
-        /*
-         * Dans certains cas le body existe déjà.
-         */
-
         setTimeout(
           this.applyMaterial,
           100
@@ -439,9 +405,7 @@
           this.el.sceneEl;
 
 
-        if (
-          !window.CANNON
-        ) {
+        if (!window.CANNON) {
           return;
         }
 
@@ -474,7 +438,8 @@
 
 
           /*
-           * Collision entre deux objets ayant ce matériau.
+           * Collision entre deux objets
+           * utilisant ce matériau.
            */
 
           const contactMaterial =
@@ -483,10 +448,6 @@
               scene.__vrMaterial,
               {
                 friction: 0.65,
-
-                /*
-                 * ZÉRO REBOND.
-                 */
                 restitution: 0.0
               }
             );
@@ -514,16 +475,6 @@
 
     /* ============================================================
        5. GRAB + THROW
-
-       Pendant le grab :
-         objet = KINEMATIC
-
-       Au lâcher :
-         objet = DYNAMIC
-
-       La vitesse de la manette est transférée à l'objet.
-
-       La rotation de la manette est également transférée.
        ============================================================ */
 
     AFRAME.registerComponent('laser-grab', {
@@ -541,13 +492,6 @@
         },
 
 
-        /*
-         * 1.0 = vitesse réelle de la main
-         *
-         * On évite 1.25 car cela pouvait produire
-         * des lancers trop violents.
-         */
-
         throwVelocityMultiplier: {
           type: 'number',
           default: 1.0
@@ -559,10 +503,6 @@
           default: 1.0
         },
 
-
-        /*
-         * Sécurité pour éviter les vitesses absurdes.
-         */
 
         maxThrowSpeed: {
           type: 'number',
@@ -583,10 +523,6 @@
         this.grabbed = null;
 
 
-        /*
-         * Position/rotation relative main -> objet.
-         */
-
         this.localPosition =
           new THREE.Vector3();
 
@@ -594,10 +530,6 @@
         this.localQuaternion =
           new THREE.Quaternion();
 
-
-        /*
-         * Transformations contrôleur.
-         */
 
         this.controllerPosition =
           new THREE.Vector3();
@@ -615,10 +547,6 @@
           new THREE.Quaternion();
 
 
-        /*
-         * Vitesse linéaire.
-         */
-
         this.prevControllerPosition =
           new THREE.Vector3();
 
@@ -630,10 +558,6 @@
         this.hasPrevPosition =
           false;
 
-
-        /*
-         * Vitesse angulaire.
-         */
 
         this.prevControllerQuaternion =
           new THREE.Quaternion();
@@ -654,10 +578,6 @@
         this.rotationAxis =
           new THREE.Vector3();
 
-
-        /*
-         * Masse originale.
-         */
 
         this.grabbedOriginalMass =
           1;
@@ -732,10 +652,6 @@
         let target = null;
 
 
-        /*
-         * Cherche le premier .grabbable.
-         */
-
         for (
           let i = 0;
           i < intersections.length;
@@ -775,9 +691,7 @@
 
 
         if (!target) {
-
           return;
-
         }
 
 
@@ -803,27 +717,15 @@
           target;
 
 
-        /*
-         * Position monde de la manette.
-         */
-
         this.el.object3D.getWorldPosition(
           this.controllerPosition
         );
 
 
-        /*
-         * Rotation monde de la manette.
-         */
-
         this.el.object3D.getWorldQuaternion(
           this.controllerQuaternion
         );
 
-
-        /*
-         * Position/rotation monde de l'objet.
-         */
 
         const objectWorldPosition =
           new THREE.Vector3();
@@ -843,10 +745,6 @@
         );
 
 
-        /*
-         * Position relative main -> objet.
-         */
-
         this.localPosition
           .copy(objectWorldPosition)
           .sub(this.controllerPosition)
@@ -856,10 +754,6 @@
               .invert()
           );
 
-
-        /*
-         * Rotation relative main -> objet.
-         */
 
         this.localQuaternion
           .copy(
@@ -872,12 +766,6 @@
           );
 
 
-        /*
-         * ========================================================
-         * PASSAGE EN KINEMATIC
-         * ========================================================
-         */
-
         const body =
           target.body;
 
@@ -885,10 +773,6 @@
         this.grabbedOriginalMass =
           body.mass;
 
-
-        /*
-         * On annule les anciennes vitesses.
-         */
 
         body.velocity.set(
           0,
@@ -904,10 +788,6 @@
         );
 
 
-        /*
-         * Kinematic = la main contrôle le body.
-         */
-
         body.type =
           CANNON.Body.KINEMATIC;
 
@@ -917,10 +797,6 @@
 
         body.wakeUp();
 
-
-        /*
-         * Reset vitesse.
-         */
 
         this.controllerVelocity.set(
           0,
@@ -977,12 +853,6 @@
 
         if (body) {
 
-          /*
-           * ------------------------------------------------------
-           * VITESSE LINÉAIRE
-           * ------------------------------------------------------
-           */
-
           const velocity =
             this.controllerVelocity
               .clone()
@@ -990,10 +860,6 @@
                 this.data.throwVelocityMultiplier
               );
 
-
-          /*
-           * Empêche un lancer complètement aberrant.
-           */
 
           if (
             velocity.length() >
@@ -1006,12 +872,6 @@
 
           }
 
-
-          /*
-           * ------------------------------------------------------
-           * VITESSE ANGULAIRE
-           * ------------------------------------------------------
-           */
 
           const angularVelocity =
             this.controllerAngularVelocity
@@ -1033,12 +893,6 @@
           }
 
 
-          /*
-           * ------------------------------------------------------
-           * RETOUR EN DYNAMIC
-           * ------------------------------------------------------
-           */
-
           body.mass =
             this.grabbedOriginalMass;
 
@@ -1049,10 +903,6 @@
 
           body.updateMassProperties();
 
-
-          /*
-           * Application du lancer.
-           */
 
           body.velocity.set(
             velocity.x,
@@ -1149,33 +999,19 @@
         }
 
 
-        /*
-         * --------------------------------------------------------
-         * POSITION CONTROLLER
-         * --------------------------------------------------------
-         */
-
         this.el.object3D.getWorldPosition(
           this.controllerPosition
         );
 
-
-        /*
-         * --------------------------------------------------------
-         * ROTATION CONTROLLER
-         * --------------------------------------------------------
-         */
 
         this.el.object3D.getWorldQuaternion(
           this.controllerQuaternion
         );
 
 
-        /*
-         * ========================================================
-         * VITESSE LINÉAIRE
-         * ========================================================
-         */
+        /* ========================================================
+           VITESSE LINÉAIRE
+           ======================================================== */
 
         if (
           this.hasPrevPosition
@@ -1189,13 +1025,6 @@
               )
               .divideScalar(dt);
 
-
-          /*
-           * Lissage raisonnable.
-           *
-           * Trop de lissage = lancer mou.
-           * Pas assez = bruit du casque.
-           */
 
           this.controllerVelocity.lerp(
             instantVelocity,
@@ -1214,20 +1043,13 @@
           true;
 
 
-        /*
-         * ========================================================
-         * VITESSE ANGULAIRE
-         * ========================================================
-         */
+        /* ========================================================
+           VITESSE ANGULAIRE
+           ======================================================== */
 
         if (
           this.hasPrevQuaternion
         ) {
-
-          /*
-           * qDelta =
-           * qCurrent * inverse(qPrevious)
-           */
 
           this.deltaQuaternion
             .copy(
@@ -1251,10 +1073,6 @@
               1
             );
 
-
-          /*
-           * Chemin de rotation le plus court.
-           */
 
           if (w < 0) {
 
@@ -1325,11 +1143,9 @@
           true;
 
 
-        /*
-         * ========================================================
-         * NOUVELLE POSITION DE L'OBJET
-         * ========================================================
-         */
+        /* ========================================================
+           POSITION
+           ======================================================== */
 
         this.tempPosition
           .copy(this.localPosition)
@@ -1341,11 +1157,9 @@
           );
 
 
-        /*
-         * ========================================================
-         * NOUVELLE ROTATION DE L'OBJET
-         * ========================================================
-         */
+        /* ========================================================
+           ROTATION
+           ======================================================== */
 
         this.tempQuaternion
           .copy(
@@ -1357,17 +1171,9 @@
           .normalize();
 
 
-        /*
-         * ========================================================
-         * ON DÉPLACE DIRECTEMENT LE BODY CANNON
-         *
-         * C'est important :
-         * pendant le grab, on ne demande pas à A-Frame de
-         * reconstruire la position puis au moteur de la deviner.
-         *
-         * On donne directement la transformation au body.
-         * ========================================================
-         */
+        /* ========================================================
+           SYNCHRONISATION CANNON
+           ======================================================== */
 
         body.position.set(
 
@@ -1414,11 +1220,9 @@
         body.wakeUp();
 
 
-        /*
-         * ========================================================
-         * SYNCHRONISATION A-FRAME
-         * ========================================================
-         */
+        /* ========================================================
+           SYNCHRONISATION A-FRAME
+           ======================================================== */
 
         object.position.copy(
           this.tempPosition
@@ -1493,6 +1297,22 @@
 
 <body>
 
+
+<!-- ============================================================
+     PHYSIQUE
+
+     gravity = gravité
+
+     restitution = 0
+     => pas de rebond
+
+     iterations = précision du solveur
+
+     Ces commentaires sont volontairement HORS de la balise
+     <a-scene> pour ne pas être interprétés comme des attributs.
+     ============================================================ -->
+
+
 <a-scene
 
   background="
@@ -1508,22 +1328,6 @@
   vr-mode-ui="
     enabled: true
   "
-
-  /*
-   * ============================================================
-   * PHYSIQUE
-   * ============================================================
-   *
-   * gravity = gravité normale
-   *
-   * restitution = 0
-   * => PAS DE REBOND
-   *
-   * iterations = précision du solveur
-   *
-   * debug = false
-   *
-   */
 
   physics="
     gravity: 0 -9.81 0;
@@ -1593,18 +1397,6 @@
 
   <!-- ==========================================================
        SOL PHYSIQUE
-       ==========================================================
-
-       Boîte très fine.
-
-       Son dessus est exactement à Y = 0 :
-
-       centre = -0.05
-       hauteur = 0.10
-
-       => sommet = 0
-
-       C'est plus fiable qu'un plan physique pour notre cas.
        ========================================================== -->
 
   <a-box
@@ -1629,7 +1421,6 @@
 
   >
   </a-box>
-
 
 
   <!-- ==========================================================
@@ -1774,20 +1565,6 @@
 
   <!-- ==========================================================
        CUBE
-       ==========================================================
-
-       Le cube :
-
-       - masse = 5
-       - vrai corps dynamique
-       - collisions avec les autres objets
-       - peut tomber d'une arête
-       - peut basculer
-       - peut être lancé
-       - peut recevoir un choc
-
-       angularDamping assez faible pour conserver un mouvement
-       naturel lorsqu'il tourne.
        ========================================================== -->
 
   <a-box
@@ -1863,17 +1640,6 @@
 
   <!-- ==========================================================
        CYLINDRE
-       ==========================================================
-
-       Le cylindre est volontairement assez libre en rotation.
-
-       Il peut donc :
-
-       - tomber sur le côté
-       - rouler
-       - entrer en collision avec le cube
-       - être lancé
-       - tourner sur lui-même
        ========================================================== -->
 
   <a-cylinder

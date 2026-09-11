@@ -278,6 +278,103 @@
     });
 
 
+    /*
+     * shape-collider
+     * ----------------
+     * Calcule, pour la ROTATION ACTUELLE de l'objet, le point le plus bas
+     * de sa forme par rapport à son centre (un offset négatif ou nul).
+     *
+     * On utilise une "fonction support" : pour une direction donnée
+     * (ici "vers le bas"), on cherche le point de la forme qui va le
+     * plus loin dans cette direction. C'est indépendant de l'angle
+     * de rotation puisqu'on transforme la direction dans le repère
+     * local de l'objet plutôt que l'inverse.
+     */
+    AFRAME.registerComponent('shape-collider', {
+
+      schema: {
+        shape: {
+          type: 'string',
+          default: 'box',
+          oneOf: ['box', 'sphere', 'cylinder']
+        },
+        width: { type: 'number', default: 1 },
+        height: { type: 'number', default: 1 },
+        depth: { type: 'number', default: 1 },
+        radius: { type: 'number', default: 0.5 },
+        cylinderHeight: { type: 'number', default: 1 }
+      },
+
+      init: function () {
+        this._quaternion = new THREE.Quaternion();
+        this._matrix = new THREE.Matrix4();
+      },
+
+      /*
+       * Retourne l'offset Y (négatif) entre le centre de l'objet
+       * et son point le plus bas, compte tenu de sa rotation.
+       * On peut lui passer un quaternion explicite (ex: pendant
+       * un grab, avant que la rotation ne soit vraiment appliquée),
+       * sinon on prend la rotation monde actuelle de l'objet.
+       */
+      getLowestOffset: function (quaternion) {
+
+        const shape = this.data.shape;
+
+        if (shape === 'sphere') {
+          return -this.data.radius;
+        }
+
+        let q = quaternion;
+
+        if (!q) {
+          this.el.object3D.getWorldQuaternion(this._quaternion);
+          q = this._quaternion;
+        }
+
+        this._matrix.makeRotationFromQuaternion(q);
+        const e = this._matrix.elements;
+
+        // Contribution des axes locaux X / Y / Z à l'axe Y du monde
+        const ry_x = e[1];
+        const ry_y = e[5];
+        const ry_z = e[9];
+
+        if (shape === 'box') {
+
+          const hx = this.data.width / 2;
+          const hy = this.data.height / 2;
+          const hz = this.data.depth / 2;
+
+          return -(
+            Math.abs(ry_x) * hx +
+            Math.abs(ry_y) * hy +
+            Math.abs(ry_z) * hz
+          );
+        }
+
+        if (shape === 'cylinder') {
+
+          const r = this.data.radius;
+          const hh = this.data.cylinderHeight / 2;
+
+          // direction locale correspondant à "vers le bas" dans le monde
+          const dx = -ry_x;
+          const dy = -ry_y;
+          const dz = -ry_z;
+
+          const radial = Math.sqrt(dx * dx + dz * dz);
+          const support = r * radial + hh * Math.abs(dy);
+
+          return -support;
+        }
+
+        return 0;
+      }
+
+    });
+
+
     // Grab avec le laser + trigger
     AFRAME.registerComponent('laser-grab', {
 
@@ -536,7 +633,6 @@
               .subVectors(this.controllerPosition, this.prevControllerPosition)
               .divideScalar(dt);
 
-            // lissage léger pour éviter les à-coups
             this.controllerVelocity.lerp(instantVelocity, 0.5);
           }
 
@@ -561,12 +657,23 @@
             this.localQuaternion
           );
 
-        // --- Empêche l'objet de passer sous le sol pendant le grab ---
-        const gravityComp = this.grabbed.components['simple-gravity'];
-        if (gravityComp) {
-          const floor = gravityComp.data.halfHeight;
-          if (this.tempPosition.y < floor) {
-            this.tempPosition.y = floor;
+        // --- Empêche l'objet de passer sous le sol pendant le grab,
+        //     en tenant compte de sa rotation actuelle ---
+        const colliderComp = this.grabbed.components['shape-collider'];
+
+        if (colliderComp) {
+
+          const gravityComp = this.grabbed.components['simple-gravity'];
+          const floorY = gravityComp ? gravityComp.data.floorY : 0;
+
+          // on utilise tempQuaternion : la rotation qui va être
+          // appliquée cette frame, pour rester précis même quand
+          // l'objet tourne pendant qu'on le tient
+          const lowestOffset = colliderComp.getLowestOffset(this.tempQuaternion);
+          const minY = floorY - lowestOffset;
+
+          if (this.tempPosition.y < minY) {
+            this.tempPosition.y = minY;
           }
         }
         // ---------------------------------------------------------------
@@ -610,12 +717,12 @@
 
     });
 
-    // Gravité simple pour les objets
+    // Gravité simple pour les objets, appuyée sur shape-collider
     AFRAME.registerComponent('simple-gravity', {
 
       schema: {
         enabled: { type: 'boolean', default: true },
-        halfHeight: { type: 'number', default: 0.25 },
+        floorY: { type: 'number', default: 0 },
         gravity: { type: 'number', default: -9.81 }
       },
 
@@ -638,7 +745,12 @@
         position.y += this.velocity.y * dt;
         position.z += this.velocity.z * dt;
 
-        const floor = this.data.halfHeight;
+        const colliderComp = this.el.components['shape-collider'];
+
+        // fallback si jamais l'objet n'a pas de shape-collider
+        const lowestOffset = colliderComp ? colliderComp.getLowestOffset() : -0.25;
+
+        const floor = this.data.floorY - lowestOffset;
 
         if (position.y <= floor) {
           position.y = floor;
@@ -816,8 +928,14 @@
     depth="1"
     color="#4CC3D9"
     shadow="cast: true; receive: true"
+    shape-collider="
+      shape: box;
+      width: 1;
+      height: 1;
+      depth: 1
+    "
     simple-gravity="
-      halfHeight: 0.5;
+      floorY: 0;
       gravity: -9.81
     "
   >
@@ -830,8 +948,12 @@
     radius="1"
     color="#EF2D5E"
     shadow="cast: true; receive: true"
+    shape-collider="
+      shape: sphere;
+      radius: 1
+    "
     simple-gravity="
-      halfHeight: 1;
+      floorY: 0;
       gravity: -9.81
     "
   >
@@ -845,8 +967,13 @@
     radius="0.5"
     height="2"
     shadow="cast: true; receive: true"
+    shape-collider="
+      shape: cylinder;
+      radius: 0.5;
+      cylinderHeight: 2
+    "
     simple-gravity="
-      halfHeight: 1;
+      floorY: 0;
       gravity: -9.81
     "
   >

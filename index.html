@@ -249,19 +249,13 @@
                 <!-- Main gauche : déplacement -->
                 <a-entity
                 id="leftHand"
-                oculus-touch-controls="hand: left"
-                laser-controls="hand: left"
-                raycaster="objects: .global-menu-btn; far: 20"
-                line="color: #4fc3d9; opacity: 0.6">
+                oculus-touch-controls="hand: left">
                 </a-entity>
 
                 <!-- Main droite : rotation -->
                 <a-entity
                 id="rightHand"
-                oculus-touch-controls="hand: right"
-                laser-controls="hand: right"
-                raycaster="objects: .global-menu-btn; far: 20"
-                line="color: #4fc3d9; opacity: 0.6">
+                oculus-touch-controls="hand: right">
                 </a-entity>
 
             </a-entity>
@@ -3821,15 +3815,19 @@
       var code = document.getElementById('code-ex' + n).textContent;
       (0, eval)(code);
 
-      // applique les réglages de scène propres à cet exercice (physique, cibles, son...)
-      Object.keys(info.attrs).forEach(function (key) {
-        sceneEl.setAttribute(key, info.attrs[key]);
-      });
-
-      // remplace le contenu par la scène de l'exercice choisi
+      // injecte d'abord la scène de l'exercice (sol, rig, arme...)
       var tpl = document.getElementById('tpl-ex' + n);
       content.innerHTML = '';
       content.appendChild(tpl.content.cloneNode(true));
+
+      // PUIS seulement active les systèmes de scène (physique, cibles, son...) :
+      // s'ils démarraient avant que le contenu existe, tout ce qu'ils créent
+      // tout de suite (ex : les 1res cibles générées automatiquement) se
+      // faisait effacer par l'injection du contenu juste après - c'était le
+      // bug qui empêchait les cibles de fonctionner correctement.
+      Object.keys(info.attrs).forEach(function (key) {
+        sceneEl.setAttribute(key, info.attrs[key]);
+      });
 
       document.getElementById('hint').style.display = 'none';
     }, 50);

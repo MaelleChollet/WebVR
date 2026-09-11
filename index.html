@@ -486,41 +486,8 @@
 
   </a-entity>
 
-  <a-box
-    id="box"
-    class="grabbable"
-    position="-2 1 -4"
-    width="1"
-    height="1"
-    depth="1"
-    color="#4CC3D9"
-    shadow="cast: true; receive: true"
-    physics-body="shape: box; width: 1; height: 1; depth: 1; restitution: 0.1; friction: 0.4"
-  >
-  </a-box>
 
-  <a-sphere
-    id="sphere"
-    class="grabbable"
-    position="2 1.25 -6"
-    radius="1"
-    color="#EF2D5E"
-    shadow="cast: true; receive: true"
-    physics-body="shape: sphere; radius: 1; restitution: 0.4; friction: 0.2"
-  >
-  </a-sphere>
 
-  <a-cylinder
-    id="cylinder"
-    class="grabbable"
-    position="-2 2 -7"
-    color="#FFC65D"
-    radius="0.5"
-    height="2"
-    shadow="cast: true; receive: true"
-    physics-body="shape: cylinder; radius: 0.5; height: 2; restitution: 0.1; friction: 0.4"
-  >
-  </a-cylinder>
 
   <a-entity
     id="gun"
@@ -2344,14 +2311,12 @@
   </script>
 
 <script type="text/plain" id="code-ex4">
-    // =========================================================
     // SYSTEME PHYSIQUE MAISON
     // NOUVEAU (ex4) : chaque corps peut avoir un callback
     // "onCollide(otherBody)" appelé dès qu'un vrai contact est
     // détecté avec un autre corps -> utilisé par les cibles pour
     // savoir qu'une balle les a touchées, sans dupliquer la
     // logique de collision.
-    // =========================================================
     AFRAME.registerSystem('physics-world', {
 
       schema: {
@@ -2713,13 +2678,11 @@
     });
 
 
-    // =========================================================
     // NOUVEAU (ex4) : système audio d'impact
     // Génère un son "hit" procéduralement (oscillateur + enveloppe,
     // aucun fichier requis) et le spatialise en 3D via
     // THREE.PositionalAudio -> volume/atténuation réels selon la
     // distance entre l'impact et la caméra (l'oreille du joueur).
-    // =========================================================
     AFRAME.registerSystem('impact-audio', {
 
       schema: {
@@ -2798,11 +2761,9 @@
     });
 
 
-    // =========================================================
     // NOUVEAU (ex4) : effet de particules (débris) à l'impact
     // Léger et autonome : ne passe PAS par physics-world (juste
     // décoratif), donc n'alourdit pas les calculs de collision.
-    // =========================================================
     AFRAME.registerComponent('particle-piece', {
 
       init: function () {
@@ -2871,7 +2832,6 @@
     }
 
 
-    // =========================================================
     // NOUVEAU (ex4) : composant "cible"
     // Cible immobile (kinematic) mais toujours détectée en
     // collision. Ne réagit qu'aux entités de classe ".bullet".
@@ -2880,7 +2840,6 @@
     // véritable suppression/DOM se fait dans tick(), APRÈS la fin
     // de la boucle physique, pour ne jamais corrompre la liste des
     // corps en cours de parcours.
-    // =========================================================
     AFRAME.registerComponent('target', {
 
       init: function () {
@@ -2935,11 +2894,9 @@
     });
 
 
-    // =========================================================
     // NOUVEAU (ex4) : générateur de cibles aléatoires
     // Fait apparaître des cubes/cônes à intervalle régulier, tant
     // que le nombre de cibles actives est sous la limite.
-    // =========================================================
     AFRAME.registerComponent('target-spawner', {
 
       schema: {
@@ -3021,9 +2978,7 @@
     });
 
 
-    // =========================================================
     // Mouvement avec le joystick gauche
-    // =========================================================
     AFRAME.registerComponent('left-thumbstick-move', {
 
       schema: {
@@ -3071,9 +3026,7 @@
     });
 
 
-    // =========================================================
     // Rotation avec le joystick droit
-    // =========================================================
     AFRAME.registerComponent('joystick-turn', {
 
       schema: {
@@ -3099,9 +3052,7 @@
     });
 
 
-    // =========================================================
     // Curseur visuel pour le laser
-    // =========================================================
     AFRAME.registerComponent('laser-cursor', {
 
       schema: {
@@ -3168,9 +3119,7 @@
     });
 
 
-    // =========================================================
     // Grab générique (box/sphère/cylindre) avec le laser + trigger
-    // =========================================================
     AFRAME.registerComponent('laser-grab', {
 
       schema: {
@@ -3393,9 +3342,7 @@
     });
 
 
-    // =========================================================
     // Grab + tir de l'arme
-    // =========================================================
     AFRAME.registerComponent('gun-grab', {
 
       schema: {

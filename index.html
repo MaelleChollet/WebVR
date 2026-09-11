@@ -5,7 +5,7 @@
   <meta name="viewport"
         content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 
-  <title>VR - Grab, Movement & Weapon</title>
+  <title>VR - Grab, Movement, Weapon & Targets</title>
 
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
@@ -13,6 +13,11 @@
   <script>
     // =========================================================
     // SYSTEME PHYSIQUE MAISON
+    // NOUVEAU (ex4) : chaque corps peut avoir un callback
+    // "onCollide(otherBody)" appelé dès qu'un vrai contact est
+    // détecté avec un autre corps -> utilisé par les cibles pour
+    // savoir qu'une balle les a touchées, sans dupliquer la
+    // logique de collision.
     // =========================================================
     AFRAME.registerSystem('physics-world', {
 
@@ -154,6 +159,7 @@
             body.angularVelocity.multiplyScalar(0.995);
           }
 
+          // Collisions entre objets (+ déclenchement des callbacks onCollide)
           for (let i = 0; i < this.bodies.length; i++) {
             for (let j = i + 1; j < this.bodies.length; j++) {
 
@@ -177,6 +183,13 @@
               const minDist = extentA + extentB;
 
               if (dist < minDist) {
+
+                // NOUVEAU (ex4) : notifie les deux corps qu'un contact
+                // a eu lieu. Les callbacks ne doivent JAMAIS modifier
+                // le DOM/la liste "this.bodies" directement ici -> ils
+                // doivent juste poser un drapeau (voir composant "target").
+                if (a.onCollide) a.onCollide(b);
+                if (b.onCollide) b.onCollide(a);
 
                 const overlap = minDist - dist;
                 const normal = dir;
@@ -212,10 +225,6 @@
           }
         }
 
-        // Sécurité "kill plane" : uniquement pour les objets qui ont
-        // un vrai sens à "revenir" (box/sphère/cylindre/arme). Les
-        // balles (noRespawn: true) ne reviennent jamais, elles
-        // continuent de tomber puis sont supprimées par leur timeout.
         for (let i = 0; i < this.bodies.length; i++) {
           const body = this.bodies[i];
           if (body.kinematic) continue;
@@ -248,8 +257,6 @@
         restitution: { type: 'number', default: 0.15 },
         friction: { type: 'number', default: 0.35 },
 
-        // Les balles n'ont pas besoin (et ne doivent pas) revenir à
-        // un "point de spawn" après être tombées du bord du sol.
         noRespawn: { type: 'boolean', default: false }
       },
 
@@ -263,6 +270,10 @@
 
         this.spawnPosition = this.el.object3D.position.clone();
         this.spawnQuaternion = this.el.object3D.quaternion.clone();
+
+        // NOUVEAU (ex4) : callback optionnel appelé par le système
+        // physique dès qu'un contact avec un autre corps est détecté.
+        this.onCollide = null;
 
         this._invQuat = new THREE.Quaternion();
         this._dirLocal = new THREE.Vector3();
@@ -364,6 +375,314 @@
 
       remove: function () {
         this.system.unregisterBody(this);
+      }
+
+    });
+
+
+    // =========================================================
+    // NOUVEAU (ex4) : système audio d'impact
+    // Génère un son "hit" procéduralement (oscillateur + enveloppe,
+    // aucun fichier requis) et le spatialise en 3D via
+    // THREE.PositionalAudio -> volume/atténuation réels selon la
+    // distance entre l'impact et la caméra (l'oreille du joueur).
+    // =========================================================
+    AFRAME.registerSystem('impact-audio', {
+
+      schema: {
+        volume: { type: 'number', default: 0.6 },
+        refDistance: { type: 'number', default: 1 },   // distance en dessous de laquelle le son est à plein volume
+        maxDistance: { type: 'number', default: 25 },   // au-delà, volume quasi nul
+        rolloffFactor: { type: 'number', default: 2 }   // vitesse d'atténuation entre les deux
+      },
+
+      init: function () {
+        this.listener = new THREE.AudioListener();
+        this.attachToCamera();
+      },
+
+      attachToCamera: function () {
+        const trySetup = () => {
+          const camera = this.el.camera; // caméra active gérée par A-Frame
+          if (camera) {
+            camera.add(this.listener);
+          } else {
+            setTimeout(trySetup, 200);
+          }
+        };
+        trySetup();
+      },
+
+      playImpact: function (worldPosition) {
+
+        // Débloque l'AudioContext si le navigateur l'a suspendu
+        // (règle standard : nécessite une interaction utilisateur,
+        // déjà satisfaite ici puisqu'on vient de tirer/toucher).
+        if (this.listener.context.state === 'suspended') {
+          this.listener.context.resume();
+        }
+
+        const sound = new THREE.PositionalAudio(this.listener);
+
+        sound.setRefDistance(this.data.refDistance);
+        sound.setMaxDistance(this.data.maxDistance);
+        sound.setRolloffFactor(this.data.rolloffFactor);
+        sound.setDistanceModel('inverse');
+        sound.setVolume(this.data.volume);
+
+        const ctx = this.listener.context;
+        const now = ctx.currentTime;
+
+        // --- synthèse procédurale du son d'impact ---
+        const oscillator = ctx.createOscillator();
+        const envelope = ctx.createGain();
+
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(700, now);
+        oscillator.frequency.exponentialRampToValueAtTime(90, now + 0.18);
+
+        envelope.gain.setValueAtTime(1, now);
+        envelope.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+        oscillator.connect(envelope);
+        sound.setNodeSource(envelope);
+        // ---------------------------------------------
+
+        const holder = new THREE.Object3D();
+        holder.position.copy(worldPosition);
+        holder.add(sound);
+        this.el.object3D.add(holder);
+
+        oscillator.start(now);
+        oscillator.stop(now + 0.22);
+
+        oscillator.onended = () => {
+          this.el.object3D.remove(holder);
+          sound.disconnect();
+        };
+      }
+
+    });
+
+
+    // =========================================================
+    // NOUVEAU (ex4) : effet de particules (débris) à l'impact
+    // Léger et autonome : ne passe PAS par physics-world (juste
+    // décoratif), donc n'alourdit pas les calculs de collision.
+    // =========================================================
+    AFRAME.registerComponent('particle-piece', {
+
+      init: function () {
+        this.velocity = new THREE.Vector3(0, 0, 0); // fixé juste après par spawnHitParticles
+        this.age = 0;
+        this.lifetime = 0.5 + Math.random() * 0.3;
+      },
+
+      tick: function (time, delta) {
+
+        if (!delta) return;
+        const dt = delta / 1000;
+        this.age += dt;
+
+        this.velocity.y += -9.81 * dt;
+
+        const pos = this.el.object3D.position;
+        pos.x += this.velocity.x * dt;
+        pos.y += this.velocity.y * dt;
+        pos.z += this.velocity.z * dt;
+
+        const t = Math.min(1, this.age / this.lifetime);
+        const scale = Math.max(0.0001, 1 - t);
+        this.el.object3D.scale.set(scale, scale, scale);
+
+        if (this.age >= this.lifetime) {
+          if (this.el.parentNode) this.el.parentNode.removeChild(this.el);
+        }
+      }
+
+    });
+
+    // Fonction utilitaire : fait exploser N petits débris depuis un
+    // point d'impact, dans des directions aléatoires.
+    function spawnHitParticles(sceneEl, position, color) {
+
+      const count = 10;
+
+      for (let i = 0; i < count; i++) {
+
+        const piece = document.createElement('a-entity');
+        const size = 0.03 + Math.random() * 0.03;
+
+        piece.setAttribute('geometry', `primitive: box; width: ${size}; height: ${size}; depth: ${size}`);
+        piece.setAttribute('material', `color: ${color || '#FFD54A'}; shader: flat`);
+        piece.setAttribute('position', position);
+        piece.setAttribute('particle-piece', '');
+
+        sceneEl.appendChild(piece);
+
+        const dir = new THREE.Vector3(
+          Math.random() * 2 - 1,
+          Math.random() * 1.5 + 0.4,
+          Math.random() * 2 - 1
+        ).normalize();
+
+        const speed = 1.5 + Math.random() * 2.5;
+
+        piece.addEventListener('loaded', () => {
+          const comp = piece.components['particle-piece'];
+          if (comp) {
+            comp.velocity.copy(dir).multiplyScalar(speed);
+          }
+        });
+      }
+    }
+
+
+    // =========================================================
+    // NOUVEAU (ex4) : composant "cible"
+    // Cible immobile (kinematic) mais toujours détectée en
+    // collision. Ne réagit qu'aux entités de classe ".bullet".
+    // IMPORTANT : le callback onCollide (appelé DANS la boucle de
+    // collision physique) ne fait que poser un drapeau -> la
+    // véritable suppression/DOM se fait dans tick(), APRÈS la fin
+    // de la boucle physique, pour ne jamais corrompre la liste des
+    // corps en cours de parcours.
+    // =========================================================
+    AFRAME.registerComponent('target', {
+
+      init: function () {
+
+        this.hit = false;
+        this.processed = false;
+
+        this.el.addEventListener('loaded', () => {
+          const body = this.el.components['physics-body'];
+          if (!body) {
+            console.warn('target: physics-body manquant sur', this.el.id);
+            return;
+          }
+          body.kinematic = true;
+          body.onCollide = (other) => this.onCollideCallback(other);
+        });
+      },
+
+      onCollideCallback: function (otherBody) {
+        if (this.hit) return;
+        if (!otherBody.el.classList.contains('bullet')) return;
+        this.hit = true; // juste un drapeau, RIEN d'autre ici
+      },
+
+      tick: function () {
+
+        if (this.hit && !this.processed) {
+          this.processed = true;
+          this.destroyTarget();
+        }
+      },
+
+      destroyTarget: function () {
+
+        const worldPos = new THREE.Vector3();
+        this.el.object3D.getWorldPosition(worldPos);
+
+        const audioSystem = this.el.sceneEl.systems['impact-audio'];
+        if (audioSystem) audioSystem.playImpact(worldPos);
+
+        const materialData = this.el.getAttribute('material');
+        const color = (materialData && materialData.color) || '#FFFFFF';
+        spawnHitParticles(this.el.sceneEl, worldPos, color);
+
+        if (this.el.parentNode) {
+          this.el.parentNode.removeChild(this.el);
+        }
+
+        this.el.sceneEl.emit('target-destroyed');
+      }
+
+    });
+
+
+    // =========================================================
+    // NOUVEAU (ex4) : générateur de cibles aléatoires
+    // Fait apparaître des cubes/cônes à intervalle régulier, tant
+    // que le nombre de cibles actives est sous la limite.
+    // =========================================================
+    AFRAME.registerComponent('target-spawner', {
+
+      schema: {
+        spawnInterval: { type: 'number', default: 4 },
+        maxTargets: { type: 'number', default: 5 },
+        initialTargets: { type: 'number', default: 3 },
+
+        areaMinX: { type: 'number', default: -4 },
+        areaMaxX: { type: 'number', default: 4 },
+        areaMinZ: { type: 'number', default: -9 },
+        areaMaxZ: { type: 'number', default: -3 },
+        minY: { type: 'number', default: 1 },
+        maxY: { type: 'number', default: 2.5 }
+      },
+
+      init: function () {
+
+        this.activeTargets = 0;
+        this.timer = 0;
+
+        this.el.sceneEl.addEventListener('target-destroyed', () => {
+          this.activeTargets = Math.max(0, this.activeTargets - 1);
+        });
+
+        for (let i = 0; i < this.data.initialTargets; i++) {
+          this.spawnTarget();
+        }
+      },
+
+      tick: function (time, delta) {
+
+        if (!delta) return;
+
+        this.timer += delta / 1000;
+
+        if (this.timer >= this.data.spawnInterval) {
+          this.timer = 0;
+
+          if (this.activeTargets < this.data.maxTargets) {
+            this.spawnTarget();
+          }
+        }
+      },
+
+      spawnTarget: function () {
+
+        const isBox = Math.random() < 0.5;
+
+        const x = THREE.MathUtils.randFloat(this.data.areaMinX, this.data.areaMaxX);
+        const z = THREE.MathUtils.randFloat(this.data.areaMinZ, this.data.areaMaxZ);
+        const y = THREE.MathUtils.randFloat(this.data.minY, this.data.maxY);
+
+        const el = document.createElement('a-entity');
+        el.setAttribute('position', `${x} ${y} ${z}`);
+        el.setAttribute('shadow', 'cast: true; receive: true');
+        el.setAttribute('target', '');
+
+        if (isBox) {
+
+          el.setAttribute('geometry', 'primitive: box; width: 0.5; height: 0.5; depth: 0.5');
+          el.setAttribute('material', 'color: #E63946');
+          el.setAttribute('physics-body', 'shape: box; width: 0.5; height: 0.5; depth: 0.5; restitution: 0.1; friction: 0.4');
+
+        } else {
+
+          el.setAttribute('geometry', 'primitive: cone; radiusBottom: 0.35; radiusTop: 0; height: 0.7');
+          el.setAttribute('material', 'color: #F1A208');
+
+          // Le moteur physique maison ne gère que box/sphère/cylindre ;
+          // on approxime la collision du cône par un cylindre englobant
+          // (léger écart visuel/collision assumé, sans conséquence ici).
+          el.setAttribute('physics-body', 'shape: cylinder; radius: 0.35; height: 0.7; restitution: 0.1; friction: 0.4');
+        }
+
+        this.el.sceneEl.appendChild(el);
+        this.activeTargets++;
       }
 
     });
@@ -743,20 +1062,12 @@
 
     // =========================================================
     // Grab + tir de l'arme
-    // FIX : pendant que l'arme est tenue, le raycaster de la main
-    // (celui qui dessine le laser et le curseur) est reconfiguré
-    // pour partir EXACTEMENT du canon et pointer EXACTEMENT dans
-    // la même direction que la balle -> plus de décalage visuel.
-    // Remis à la normale (grab d'objets) au relâchement.
     // =========================================================
     AFRAME.registerComponent('gun-grab', {
 
       schema: {
         gripOffsetPosition: { type: 'vec3', default: { x: 0, y: -0.02, z: 0.05 } },
         gripOffsetRotation: { type: 'vec3', default: { x: -30, y: 0, z: 0 } },
-
-        // Doit correspondre à la position locale de l'entité ".muzzle"
-        // à l'intérieur de #gun (cf. balisage HTML plus bas)
         muzzleLocalOffset: { type: 'vec3', default: { x: 0, y: 0.02, z: -0.28 } },
 
         bulletSpeed: { type: 'number', default: 20 },
@@ -781,9 +1092,6 @@
         this.el.addEventListener('triggerdown', () => this.tryFire());
       },
 
-      // Calcule, dans le repère LOCAL de la main, le point de sortie
-      // du canon et sa direction -> utilisé à la fois pour orienter
-      // le raycaster (visée) et pour positionner l'arme/tirer.
       computeMuzzleLocalTransform: function () {
 
         const offsetPos = new THREE.Vector3(
@@ -870,8 +1178,6 @@
         this.velocityHistory = [];
         this.hasPrevPosition = false;
 
-        // Le laser/curseur de cette main pointe désormais exactement
-        // comme le canon de l'arme -> ce que tu vois = ce que tu tires
         const transform = this.computeMuzzleLocalTransform();
         this.el.setAttribute('raycaster', 'origin', transform.origin);
         this.el.setAttribute('raycaster', 'direction', transform.direction);
@@ -905,9 +1211,6 @@
 
         this.heldGun = null;
 
-        // On remet le raycaster de cette main en mode "normal"
-        // (origine/direction par défaut) pour pouvoir de nouveau
-        // attraper d'autres objets normalement.
         this.el.setAttribute('raycaster', 'origin', { x: 0, y: 0, z: 0 });
         this.el.setAttribute('raycaster', 'direction', { x: 0, y: 0, z: -1 });
       },
@@ -960,9 +1263,6 @@
         bullet.setAttribute('position', position);
         bullet.classList.add('bullet');
 
-        // noRespawn: true -> une balle qui tombe du bord du sol ne
-        // revient JAMAIS, elle continue de tomber puis est nettoyée
-        // par son timeout.
         bullet.setAttribute('physics-body', {
           shape: 'sphere',
           radius: this.data.bulletRadius,
@@ -1079,6 +1379,8 @@
   renderer="antialias: true; shadowMap: true"
   vr-mode-ui="enabled: true"
   physics-world="gravity: -9.81; floorHalfExtent: 10; killY: -20"
+  impact-audio="volume: 0.6; refDistance: 1; maxDistance: 25; rolloffFactor: 2"
+  target-spawner="spawnInterval: 4; maxTargets: 5; initialTargets: 3"
 >
 
   <!--

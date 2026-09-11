@@ -3819,18 +3819,32 @@
       var code = document.getElementById('code-ex' + n).textContent;
       (0, eval)(code);
 
-      // injecte d'abord la scène de l'exercice (sol, rig, arme...)
+      // 1) active d'abord le fond + la physique : les objets de la scène
+      // (comme l'arme) ont besoin que le système physique existe déjà
+      // au moment où ils s'initialisent, sinon ils ne s'accrochent pas
+      // correctement à la simulation.
+      var POST_CONTENT_ATTRS = ['impact-audio', 'target-spawner'];
+      Object.keys(info.attrs).forEach(function (key) {
+        if (POST_CONTENT_ATTRS.indexOf(key) === -1) {
+          sceneEl.setAttribute(key, info.attrs[key]);
+        }
+      });
+
+      // 2) injecte la scène de l'exercice (sol, rig, arme...)
       var tpl = document.getElementById('tpl-ex' + n);
       content.innerHTML = '';
       content.appendChild(tpl.content.cloneNode(true));
 
-      // PUIS seulement active les systèmes de scène (physique, cibles, son...) :
-      // s'ils démarraient avant que le contenu existe, tout ce qu'ils créent
-      // tout de suite (ex : les 1res cibles générées automatiquement) se
-      // faisait effacer par l'injection du contenu juste après - c'était le
-      // bug qui empêchait les cibles de fonctionner correctement.
+      // 3) active seulement maintenant les systèmes qui génèrent eux-mêmes
+      // du contenu dès leur démarrage (cibles, son) : s'ils démarraient
+      // avant que la scène existe, ce qu'ils créent tout de suite (ex :
+      // les 1res cibles générées automatiquement) se faisait effacer par
+      // l'étape 2 juste après - c'était le bug qui empêchait les cibles
+      // de fonctionner.
       Object.keys(info.attrs).forEach(function (key) {
-        sceneEl.setAttribute(key, info.attrs[key]);
+        if (POST_CONTENT_ATTRS.indexOf(key) !== -1) {
+          sceneEl.setAttribute(key, info.attrs[key]);
+        }
       });
 
       document.getElementById('hint').style.display = 'none';

@@ -11,15 +11,6 @@
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
 
   <script>
-    // =========================================================
-    // SYSTEME PHYSIQUE MAISON
-    // - Gravité + intégration linéaire ET angulaire
-    // - Collision sol / objets basée sur le vrai contour des formes
-    // - Impulsion + COUPLE au contact -> bascule réaliste (tipping)
-    // - "Grace period" après un lancer : le frottement est neutralisé
-    //   quelques instants pour ne pas tuer instantanément l'élan si
-    //   l'objet touche le sol juste après avoir été relâché
-    // =========================================================
     AFRAME.registerSystem('physics-world', {
 
       schema: {
@@ -137,10 +128,6 @@
               }
 
               body.angularVelocity.multiplyScalar(0.9);
-
-              // --- endormissement avec hystérésis : il faut être lent
-              // PENDANT UN CERTAIN TEMPS avant d'être vraiment figé, pour
-              // ne pas tuer un lancer en une seule frame de contact ---
               if (
                 body.velocity.length() < LINEAR_SLEEP_EPS &&
                 body.angularVelocity.length() < ANGULAR_SLEEP_EPS
@@ -159,7 +146,7 @@
             body.angularVelocity.multiplyScalar(0.995);
           }
 
-          // 2) Collisions entre objets (contour réel selon la forme)
+          // Collisions entre objets (contour réel selon la forme)
           for (let i = 0; i < this.bodies.length; i++) {
             for (let j = i + 1; j < this.bodies.length; j++) {
 
@@ -349,10 +336,7 @@
 
     });
 
-
-    // =========================================================
     // Mouvement avec le joystick gauche
-    // =========================================================
     AFRAME.registerComponent('left-thumbstick-move', {
 
       schema: {
@@ -378,7 +362,7 @@
         if (!delta) return;
 
         const x = this.axisX;
-        const z = -this.axisY;
+        const z = this.axisY;
 
         if (Math.abs(x) < 0.05 && Math.abs(z) < 0.05) return;
 
@@ -396,10 +380,7 @@
 
     });
 
-
-    // =========================================================
     // Rotation avec le joystick droit
-    // =========================================================
     AFRAME.registerComponent('joystick-turn', {
 
       schema: {
@@ -424,10 +405,7 @@
 
     });
 
-
-    // =========================================================
     // Curseur visuel pour le laser
-    // =========================================================
     AFRAME.registerComponent('laser-cursor', {
 
       schema: {
@@ -489,10 +467,7 @@
 
     });
 
-
-    // =========================================================
     // Grab avec le laser + trigger
-    // =========================================================
     AFRAME.registerComponent('laser-grab', {
 
       schema: {
@@ -618,10 +593,6 @@
           throwAngularVelocity.divideScalar(this.angularVelocityHistory.length);
         }
 
-        // Log de debug : vérifie ces valeurs dans la console (F12).
-        // Si elles sont proches de (0,0,0), c'est que la main du
-        // contrôleur n'a pas vraiment bougé pendant le geste (souvent
-        // parce que le test se fait sans casque VR / hors mode VR réel).
         console.log('THROW linear velocity:', throwVelocity);
         console.log('THROW angular velocity:', throwAngularVelocity);
 

@@ -10,14 +10,162 @@
   <!-- A-Frame -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
 
-  <!-- movement-controls -->
-  <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
-
-  <!-- Moteur physique (cannon.js) : collisions, gravité, frottement -->
-  <script src="https://cdn.jsdelivr.net/npm/aframe-physics-system@4/dist/aframe-physics-system.min.js"></script>
-
   <script>
-    // Mouvement avec le joystick gauche
+    // =========================================================
+    // SYSTEME PHYSIQUE MAISON (gravité + sol + collisions objets)
+    // On n'utilise plus de lib externe (cannon.js) car incompatible
+    // avec cette version d'A-Frame -> les objets traversaient le sol.
+    // =========================================================
+    AFRAME.registerSystem('physics-world', {
+
+      schema: {
+        gravity: { type: 'number', default: -9.81 }
+      },
+
+      init: function () {
+        this.bodies = [];
+      },
+
+      registerBody: function (component) {
+        this.bodies.push(component);
+      },
+
+      unregisterBody: function (component) {
+        const index = this.bodies.indexOf(component);
+        if (index !== -1) this.bodies.splice(index, 1);
+      },
+
+      tick: function (time, delta) {
+
+        if (!delta) return;
+
+        const dt = Math.min(delta / 1000, 0.05);
+        const subSteps = 4;
+        const subDt = dt / subSteps;
+
+        for (let s = 0; s < subSteps; s++) {
+
+          // 1) Gravité + intégration + collision avec le sol
+          for (let i = 0; i < this.bodies.length; i++) {
+            const body = this.bodies[i];
+            if (body.kinematic) continue; // objet tenu en main -> pas de gravité
+
+            const pos = body.el.object3D.position;
+
+            body.velocity.y += this.data.gravity * subDt;
+
+            pos.x += body.velocity.x * subDt;
+            pos.y += body.velocity.y * subDt;
+            pos.z += body.velocity.z * subDt;
+
+            // Sol horizontal en y = 0. On empêche STRICTEMENT
+            // l'objet de passer en dessous.
+            const floorY = body.data.halfHeight;
+
+            if (pos.y < floorY) {
+              pos.y = floorY;
+
+              if (body.velocity.y < 0) {
+                body.velocity.y = -body.velocity.y * body.data.restitution;
+                if (Math.abs(body.velocity.y) < 0.15) body.velocity.y = 0;
+              }
+
+              // frottement au sol
+              body.velocity.x *= (1 - body.data.friction);
+              body.velocity.z *= (1 - body.data.friction);
+            }
+
+            // léger amortissement dans l'air pour éviter les dérives numériques
+            body.velocity.multiplyScalar(0.999);
+          }
+
+          // 2) Collisions entre objets (sphères englobantes) : ils se
+          // cognent et se repoussent, ne se traversent jamais.
+          for (let i = 0; i < this.bodies.length; i++) {
+            for (let j = i + 1; j < this.bodies.length; j++) {
+
+              const a = this.bodies[i];
+              const b = this.bodies[j];
+
+              if (a.kinematic && b.kinematic) continue;
+
+              const posA = a.el.object3D.position;
+              const posB = b.el.object3D.position;
+
+              const delta = new THREE.Vector3().subVectors(posB, posA);
+              const dist = delta.length();
+              const minDist = a.data.radius + b.data.radius;
+
+              if (dist > 0.0001 && dist < minDist) {
+
+                const overlap = minDist - dist;
+                const normal = delta.clone().divideScalar(dist);
+
+                if (a.kinematic) {
+                  // a est tenu en main -> immobile, on ne pousse que b
+                  posB.add(normal.clone().multiplyScalar(overlap));
+                  const vAlongNormal = b.velocity.dot(normal);
+                  if (vAlongNormal < 0) {
+                    b.velocity.sub(normal.clone().multiplyScalar(vAlongNormal));
+                  }
+                } else if (b.kinematic) {
+                  posA.sub(normal.clone().multiplyScalar(overlap));
+                  const vAlongNormal = a.velocity.dot(normal.clone().negate());
+                  if (vAlongNormal < 0) {
+                    a.velocity.add(normal.clone().multiplyScalar(vAlongNormal));
+                  }
+                } else {
+                  // les deux sont dynamiques -> on les sépare chacun de moitié
+                  posA.sub(normal.clone().multiplyScalar(overlap / 2));
+                  posB.add(normal.clone().multiplyScalar(overlap / 2));
+
+                  // petit échange de vitesse le long de la normale (rebond simple)
+                  const relVel = new THREE.Vector3().subVectors(b.velocity, a.velocity);
+                  const sepVel = relVel.dot(normal);
+
+                  if (sepVel < 0) {
+                    const restitution = Math.min(a.data.restitution, b.data.restitution);
+                    const impulse = normal.clone().multiplyScalar(-sepVel * (1 + restitution) / 2);
+                    a.velocity.sub(impulse);
+                    b.velocity.add(impulse);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+    });
+
+    // Composant à attacher à chaque objet grabbable/physique
+    AFRAME.registerComponent('physics-body', {
+
+      schema: {
+        radius: { type: 'number', default: 0.6 },     // rayon de collision approx. (sphère englobante)
+        halfHeight: { type: 'number', default: 0.5 },  // hauteur de repos au sol
+        restitution: { type: 'number', default: 0.15 },// rebond
+        friction: { type: 'number', default: 0.35 }
+      },
+
+      init: function () {
+        this.velocity = new THREE.Vector3(0, 0, 0);
+        this.kinematic = false; // true pendant qu'on tient l'objet dans la main
+
+        this.system = this.el.sceneEl.systems['physics-world'];
+        this.system.registerBody(this);
+      },
+
+      remove: function () {
+        this.system.unregisterBody(this);
+      }
+
+    });
+
+
+    // =========================================================
+    // Mouvement avec le joystick gauche (avant/arrière/gauche/droite)
+    // =========================================================
     AFRAME.registerComponent('left-thumbstick-move', {
 
       schema: {
@@ -26,270 +174,144 @@
       },
 
       init: function () {
-
         this.axisX = 0;
         this.axisY = 0;
-
         this.onThumbstick = this.onThumbstick.bind(this);
-
-        this.el.addEventListener(
-          'thumbstickmoved',
-          this.onThumbstick
-        );
+        this.el.addEventListener('thumbstickmoved', this.onThumbstick);
       },
 
       onThumbstick: function (event) {
-
         this.axisX = event.detail.x || 0;
         this.axisY = event.detail.y || 0;
-
       },
 
       tick: function (time, delta) {
 
         if (!this.data.rig) return;
-
         if (!delta) return;
 
-        /*
-         * A-Frame donne :
-         * y < 0 = avant
-         * y > 0 = arrière
-         */
-
+        // A-Frame donne : y < 0 = avant, y > 0 = arrière
         const x = this.axisX;
         const z = -this.axisY;
 
-        if (Math.abs(x) < 0.05 && Math.abs(z) < 0.05) {
-          return;
-        }
+        if (Math.abs(x) < 0.05 && Math.abs(z) < 0.05) return;
 
         const dt = delta / 1000;
-        const direction = new THREE.Vector3(
-          x,
-          0,
-          z
-        );
+        const direction = new THREE.Vector3(x, 0, z);
 
         direction.applyAxisAngle(
           new THREE.Vector3(0, 1, 0),
           this.data.rig.object3D.rotation.y
         );
 
-        this.data.rig.object3D.position.x +=
-          direction.x * this.data.speed * dt;
-
-        this.data.rig.object3D.position.z +=
-          direction.z * this.data.speed * dt;
+        this.data.rig.object3D.position.x += direction.x * this.data.speed * dt;
+        this.data.rig.object3D.position.z += direction.z * this.data.speed * dt;
       }
 
     });
 
 
+    // =========================================================
     // Rotation avec le joystick droit
+    // =========================================================
     AFRAME.registerComponent('joystick-turn', {
 
       schema: {
-        speed: {
-          type: 'number',
-          default: 1.8
-        }
+        speed: { type: 'number', default: 1.8 }
       },
 
       init: function () {
-
         this.axisX = 0;
-
-        this.el.addEventListener(
-          'thumbstickmoved',
-          (event) => {
-            this.axisX = event.detail.x || 0;
-          }
-        );
+        this.el.addEventListener('thumbstickmoved', (event) => {
+          this.axisX = event.detail.x || 0;
+        });
       },
 
       tick: function (time, delta) {
 
         if (!delta) return;
-
-        if (Math.abs(this.axisX) < 0.1) {
-          return;
-        }
+        if (Math.abs(this.axisX) < 0.1) return;
 
         const dt = delta / 1000;
-
-        this.el.parentEl.object3D.rotation.y -=
-          this.axisX * this.data.speed * dt;
+        this.el.parentEl.object3D.rotation.y -= this.axisX * this.data.speed * dt;
       }
 
     });
 
-    // custom cursor pour le laser
+
+    // =========================================================
+    // Curseur visuel pour le laser
+    // =========================================================
     AFRAME.registerComponent('laser-cursor', {
 
       schema: {
-        color: {
-          type: 'color',
-          default: '#00FFFF'
-        }
+        color: { type: 'color', default: '#00FFFF' }
       },
 
       init: function () {
 
         this.cursor = document.createElement('a-sphere');
+        this.cursor.setAttribute('radius', '0.018');
+        this.cursor.setAttribute('color', this.data.color);
+        this.cursor.setAttribute('visible', 'false');
+        this.cursor.setAttribute('material', 'shader: flat; opacity: 0.95');
+        this.el.sceneEl.appendChild(this.cursor);
 
-        this.cursor.setAttribute(
-          'radius',
-          '0.018'
-        );
+        this.onIntersection = this.onIntersection.bind(this);
+        this.onClear = this.onClear.bind(this);
 
-        this.cursor.setAttribute(
-          'color',
-          this.data.color
-        );
-
-        this.cursor.setAttribute(
-          'visible',
-          'false'
-        );
-
-        this.cursor.setAttribute(
-          'material',
-          'shader: flat; opacity: 0.95'
-        );
-
-        this.el.sceneEl.appendChild(
-          this.cursor
-        );
-
-
-        this.onIntersection =
-          this.onIntersection.bind(this);
-
-        this.onClear =
-          this.onClear.bind(this);
-
-
-        this.el.addEventListener(
-          'raycaster-intersection',
-          this.onIntersection
-        );
-
-        this.el.addEventListener(
-          'raycaster-intersection-cleared',
-          this.onClear
-        );
+        this.el.addEventListener('raycaster-intersection', this.onIntersection);
+        this.el.addEventListener('raycaster-intersection-cleared', this.onClear);
       },
-
 
       onIntersection: function (event) {
 
-        const raycaster =
-          this.el.components.raycaster;
-
+        const raycaster = this.el.components.raycaster;
         if (!raycaster) return;
 
-        const intersections =
-          raycaster.intersections;
+        const intersections = raycaster.intersections;
+        if (!intersections || intersections.length === 0) return;
 
-        if (
-          !intersections ||
-          intersections.length === 0
-        ) {
-          return;
-        }
+        const hit = intersections[0];
+        if (!hit || !hit.point) return;
+        if (!hit.object || !hit.object.el) return;
 
+        let target = hit.object.el;
 
-        const hit =
-          intersections[0];
-
-        if (!hit || !hit.point) {
-          return;
-        }
-
-
-        if (
-          !hit.object ||
-          !hit.object.el
-        ) {
-          return;
-        }
-
-
-        let target =
-          hit.object.el;
-
-        while (
-          target &&
-          !target.classList.contains('grabbable') &&
-          target.parentEl
-        ) {
+        while (target && !target.classList.contains('grabbable') && target.parentEl) {
           target = target.parentEl;
         }
 
-
-        if (
-          !target ||
-          !target.classList.contains('grabbable')
-        ) {
-          this.cursor.setAttribute(
-            'visible',
-            'false'
-          );
-
+        if (!target || !target.classList.contains('grabbable')) {
+          this.cursor.setAttribute('visible', 'false');
           return;
         }
 
-
-        this.cursor.object3D.position.copy(
-          hit.point
-        );
-
-        this.cursor.setAttribute(
-          'visible',
-          'true'
-        );
+        this.cursor.object3D.position.copy(hit.point);
+        this.cursor.setAttribute('visible', 'true');
       },
-
 
       onClear: function () {
-
-        this.cursor.setAttribute(
-          'visible',
-          'false'
-        );
+        this.cursor.setAttribute('visible', 'false');
       },
 
-
       remove: function () {
-
-        if (this.cursor) {
-          this.cursor.remove();
-        }
-
-        this.el.removeEventListener(
-          'raycaster-intersection',
-          this.onIntersection
-        );
-
-        this.el.removeEventListener(
-          'raycaster-intersection-cleared',
-          this.onClear
-        );
+        if (this.cursor) this.cursor.remove();
+        this.el.removeEventListener('raycaster-intersection', this.onIntersection);
+        this.el.removeEventListener('raycaster-intersection-cleared', this.onClear);
       }
 
     });
 
 
-    // Grab avec le laser + trigger, compatible moteur physique (cannon.js)
+    // =========================================================
+    // Grab avec le laser + trigger (compatible physics-body maison)
+    // =========================================================
     AFRAME.registerComponent('laser-grab', {
 
       schema: {
-        rig: {
-          type: 'selector'
-        }
+        rig: { type: 'selector' }
       },
-
 
       init: function () {
 
@@ -302,193 +324,97 @@
         this.tempPosition = new THREE.Vector3();
         this.tempQuaternion = new THREE.Quaternion();
 
-        // --- pour le calcul de la vitesse de lancer ---
+        // --- pour calculer la vitesse de lancer ---
         this.prevControllerPosition = new THREE.Vector3();
         this.hasPrevPosition = false;
-        this.velocityHistory = []; // moyenne glissante des dernières vitesses
-        // ------------------------------------------------
+        this.velocityHistory = [];
+        // --------------------------------------------
 
-        this.el.addEventListener('triggerdown', () => {
-          this.startGrab();
-        });
-
-        this.el.addEventListener('triggerup', () => {
-          this.endGrab();
-        });
+        this.el.addEventListener('triggerdown', () => this.startGrab());
+        this.el.addEventListener('triggerup', () => this.endGrab());
       },
-
 
       startGrab: function () {
 
-        console.log(
-          'TRIGGER DOWN'
-        );
+        console.log('TRIGGER DOWN');
 
-
-        const raycaster =
-          this.el.components.raycaster;
-
-
+        const raycaster = this.el.components.raycaster;
         if (!raycaster) {
-
-          console.warn(
-            'Raycaster absent'
-          );
-
+          console.warn('Raycaster absent');
           return;
         }
 
-
-        const intersections =
-          raycaster.intersections;
-
-
-        if (
-          !intersections ||
-          intersections.length === 0
-        ) {
-
-          console.log(
-            'Trigger pressé mais aucun objet'
-          );
-
+        const intersections = raycaster.intersections;
+        if (!intersections || intersections.length === 0) {
+          console.log('Trigger pressé mais aucun objet');
           return;
         }
 
         let target = null;
 
+        for (let i = 0; i < intersections.length; i++) {
+          let candidate = intersections[i].object && intersections[i].object.el;
 
-        for (
-          let i = 0;
-          i < intersections.length;
-          i++
-        ) {
-
-          let candidate =
-            intersections[i].object &&
-            intersections[i].object.el;
-
-
-          while (
-            candidate &&
-            !candidate.classList.contains('grabbable') &&
-            candidate.parentEl
-          ) {
-
-            candidate =
-              candidate.parentEl;
+          while (candidate && !candidate.classList.contains('grabbable') && candidate.parentEl) {
+            candidate = candidate.parentEl;
           }
 
-
-          if (
-            candidate &&
-            candidate.classList.contains('grabbable')
-          ) {
-
+          if (candidate && candidate.classList.contains('grabbable')) {
             target = candidate;
             break;
           }
         }
 
-
         if (!target) {
-
-          console.log(
-            'Aucun objet grabbable'
-          );
-
+          console.log('Aucun objet grabbable');
           return;
         }
 
-
-        console.log(
-          'GRAB:',
-          target.id
-        );
-
+        console.log('GRAB:', target.id);
 
         this.grabbed = target;
 
-        this.el.object3D.getWorldPosition(
-          this.controllerPosition
-        );
+        this.el.object3D.getWorldPosition(this.controllerPosition);
+        this.el.object3D.getWorldQuaternion(this.controllerQuaternion);
 
-        this.el.object3D.getWorldQuaternion(
-          this.controllerQuaternion
-        );
+        const objectWorldPosition = new THREE.Vector3();
+        const objectWorldQuaternion = new THREE.Quaternion();
 
-        const objectWorldPosition =
-          new THREE.Vector3();
-
-        const objectWorldQuaternion =
-          new THREE.Quaternion();
-
-
-        target.object3D.getWorldPosition(
-          objectWorldPosition
-        );
-
-        target.object3D.getWorldQuaternion(
-          objectWorldQuaternion
-        );
+        target.object3D.getWorldPosition(objectWorldPosition);
+        target.object3D.getWorldQuaternion(objectWorldQuaternion);
 
         this.localPosition
           .copy(objectWorldPosition)
           .sub(this.controllerPosition)
-          .applyQuaternion(
-            this.controllerQuaternion.clone().invert()
-          );
+          .applyQuaternion(this.controllerQuaternion.clone().invert());
 
         this.localQuaternion
           .copy(this.controllerQuaternion)
           .invert()
-          .multiply(
-            objectWorldQuaternion
-          );
+          .multiply(objectWorldQuaternion);
 
-        // On passe le corps physique en "kinematic" : il suit la main
-        // à la main sans subir la gravité, mais continue de pousser
-        // les autres objets dynamiques s'il les touche.
-        if (target.body) {
-          const KINEMATIC = (typeof CANNON !== 'undefined') ? CANNON.Body.KINEMATIC : 2;
-          target.body.type = KINEMATIC;
-          target.body.velocity.set(0, 0, 0);
-          target.body.angularVelocity.set(0, 0, 0);
-          target.body.allowSleep = false;
+        // On passe l'objet en mode "kinematic" : il suit la main
+        // sans subir la gravité, mais reste un obstacle pour les autres.
+        const body = target.components['physics-body'];
+        if (body) {
+          body.kinematic = true;
+          body.velocity.set(0, 0, 0);
         }
 
-        // Réinitialisation de l'historique de vitesse pour le futur lancer
         this.velocityHistory = [];
         this.hasPrevPosition = false;
 
-        /*
-         * État visuel
-         */
-        target.classList.add(
-          'grabbed'
-        );
-
-
-        target.emit(
-          'grab-start'
-        );
+        target.classList.add('grabbed');
+        target.emit('grab-start');
       },
-
 
       endGrab: function () {
 
-        if (!this.grabbed) {
-          return;
-        }
+        if (!this.grabbed) return;
 
+        console.log('TRIGGER UP');
 
-        console.log(
-          'TRIGGER UP'
-        );
-
-
-        const object =
-          this.grabbed;
+        const object = this.grabbed;
 
         // Vitesse moyenne du contrôleur sur les dernières frames = vitesse de lancer
         const throwVelocity = new THREE.Vector3();
@@ -498,198 +424,92 @@
           throwVelocity.divideScalar(this.velocityHistory.length);
         }
 
-        if (object.body) {
-          const DYNAMIC = (typeof CANNON !== 'undefined') ? CANNON.Body.DYNAMIC : 1;
-
-          object.body.type = DYNAMIC;
-          object.body.allowSleep = true;
-
-          object.body.velocity.set(
-            throwVelocity.x,
-            throwVelocity.y,
-            throwVelocity.z
-          );
-
-          // petite rotation aléatoire pour un effet de lancer plus naturel
-          object.body.angularVelocity.set(
-            (Math.random() - 0.5) * 2,
-            (Math.random() - 0.5) * 2,
-            (Math.random() - 0.5) * 2
-          );
-
-          object.body.wakeUp();
+        const body = object.components['physics-body'];
+        if (body) {
+          body.kinematic = false;
+          body.velocity.copy(throwVelocity);
         }
 
-
-        object.classList.remove(
-          'grabbed'
-        );
-
-
-        object.emit(
-          'grab-end'
-        );
-
+        object.classList.remove('grabbed');
+        object.emit('grab-end');
 
         this.grabbed = null;
       },
 
-
       tick: function (time, delta) {
 
-        if (!this.grabbed) {
-          return;
-        }
-
+        if (!this.grabbed) return;
         if (!delta) return;
 
+        const object = this.grabbed.object3D;
 
-        const object =
-          this.grabbed.object3D;
+        this.el.object3D.getWorldPosition(this.controllerPosition);
+        this.el.object3D.getWorldQuaternion(this.controllerQuaternion);
 
-
-        this.el.object3D.getWorldPosition(
-          this.controllerPosition
-        );
-
-        this.el.object3D.getWorldQuaternion(
-          this.controllerQuaternion
-        );
-
-        // --- calcul de la vitesse instantanée du contrôleur ---
+        // --- vitesse instantanée du contrôleur (pour le futur lancer) ---
         const dt = delta / 1000;
 
         if (this.hasPrevPosition && dt > 0) {
-
           const instantVelocity = new THREE.Vector3()
             .subVectors(this.controllerPosition, this.prevControllerPosition)
             .divideScalar(dt);
 
           this.velocityHistory.push(instantVelocity);
-
-          // on ne garde que les 5 dernières valeurs (lissage)
-          if (this.velocityHistory.length > 5) {
-            this.velocityHistory.shift();
-          }
+          if (this.velocityHistory.length > 5) this.velocityHistory.shift();
         }
 
         this.prevControllerPosition.copy(this.controllerPosition);
         this.hasPrevPosition = true;
-        // --------------------------------------------------------
+        // -------------------------------------------------------------
 
         this.tempPosition
           .copy(this.localPosition)
-          .applyQuaternion(
-            this.controllerQuaternion
-          )
-          .add(
-            this.controllerPosition
-          );
-
+          .applyQuaternion(this.controllerQuaternion)
+          .add(this.controllerPosition);
 
         this.tempQuaternion
           .copy(this.controllerQuaternion)
-          .multiply(
-            this.localQuaternion
-          );
+          .multiply(this.localQuaternion);
 
         if (object.parent) {
 
-          const parentWorldPosition =
-            new THREE.Vector3();
+          const parentWorldPosition = new THREE.Vector3();
+          const parentWorldQuaternion = new THREE.Quaternion();
 
-          const parentWorldQuaternion =
-            new THREE.Quaternion();
-
-          object.parent.getWorldPosition(
-            parentWorldPosition
-          );
-
-          object.parent.getWorldQuaternion(
-            parentWorldQuaternion
-          );
-
+          object.parent.getWorldPosition(parentWorldPosition);
+          object.parent.getWorldQuaternion(parentWorldQuaternion);
 
           object.position
             .copy(this.tempPosition)
             .sub(parentWorldPosition)
-            .applyQuaternion(
-              parentWorldQuaternion.clone().invert()
-            );
-
+            .applyQuaternion(parentWorldQuaternion.clone().invert());
 
           object.quaternion
-            .copy(
-              parentWorldQuaternion.clone().invert()
-            )
-            .multiply(
-              this.tempQuaternion
-            );
-
-        }
-
-        // On met aussi à jour directement le corps physique (kinematic)
-        // pour que les collisions avec les autres objets soient prises
-        // en compte pendant qu'on tient l'objet dans la main.
-        if (this.grabbed.body) {
-          this.grabbed.body.position.set(
-            this.tempPosition.x,
-            this.tempPosition.y,
-            this.tempPosition.z
-          );
-
-          this.grabbed.body.quaternion.set(
-            this.tempQuaternion.x,
-            this.tempQuaternion.y,
-            this.tempQuaternion.z,
-            this.tempQuaternion.w
-          );
+            .copy(parentWorldQuaternion.clone().invert())
+            .multiply(this.tempQuaternion);
         }
 
       }
 
     });
 
+
     // Debug des contrôleurs
     AFRAME.registerComponent('controller-debug', {
 
       init: function () {
 
-        this.el.addEventListener(
-          'triggerdown',
-          () => {
-            console.log(
-              'DEBUG → TRIGGER DOWN',
-              this.el.id
-            );
-          }
-        );
+        this.el.addEventListener('triggerdown', () => {
+          console.log('DEBUG → TRIGGER DOWN', this.el.id);
+        });
 
+        this.el.addEventListener('triggerup', () => {
+          console.log('DEBUG → TRIGGER UP', this.el.id);
+        });
 
-        this.el.addEventListener(
-          'triggerup',
-          () => {
-            console.log(
-              'DEBUG → TRIGGER UP',
-              this.el.id
-            );
-          }
-        );
-
-
-        this.el.addEventListener(
-          'thumbstickmoved',
-          (event) => {
-
-            console.log(
-              'STICK',
-              this.el.id,
-              event.detail.x,
-              event.detail.y
-            );
-
-          }
-        );
+        this.el.addEventListener('thumbstickmoved', (event) => {
+          console.log('STICK', this.el.id, event.detail.x, event.detail.y);
+        });
       }
 
     });
@@ -703,7 +523,7 @@
   background="color: #111111"
   renderer="antialias: true; shadowMap: true"
   vr-mode-ui="enabled: true"
-  physics="gravity: -9.8; debug: false"
+  physics-world="gravity: -9.81"
 >
   <a-entity light="type: ambient; intensity: 0.7"></a-entity>
   <a-entity light="type: directional; intensity: 1; castShadow: true" position="-2 5 3"></a-entity>
@@ -714,14 +534,10 @@
     width="20"
     height="20"
     color="#7BC8A4"
-    shadow="receive: true"
-    static-body="shape: box; friction: 0.5; restitution: 0.1">
+    shadow="receive: true">
   </a-plane>
 
-  <a-entity
-    id="rig"
-    position="0 0 2"
-  >
+  <a-entity id="rig" position="0 0 2">
 
     <a-camera
       id="camera"
@@ -731,75 +547,27 @@
 
     <a-entity
       id="leftHand"
-
-      meta-touch-controls="
-        hand: left;
-        model: true
-      "
-
-      laser-controls="
-        hand: left
-      "
-
-      raycaster="
-        objects: .grabbable;
-        far: 10;
-        interval: 0
-      "
-
-      laser-cursor="
-        color: #00FFFF
-      "
-
-      laser-grab="
-        rig: #rig
-      "
-
-      left-thumbstick-move="
-        rig: #rig;
-        speed: 2.0
-      "
-
+      meta-touch-controls="hand: left; model: true"
+      laser-controls="hand: left"
+      raycaster="objects: .grabbable; far: 10; interval: 0"
+      laser-cursor="color: #00FFFF"
+      laser-grab="rig: #rig"
+      left-thumbstick-move="rig: #rig; speed: 2.0"
       controller-debug
-
-      line="
-        color: #00FFFF;
-        opacity: 0.8
-      "
+      line="color: #00FFFF; opacity: 0.8"
     >
     </a-entity>
 
     <a-entity
       id="rightHand"
-
-      meta-touch-controls="
-        hand: right;
-        model: true
-      "
-
-      laser-controls="
-        hand: right
-      "
-
-      raycaster="
-        objects: .grabbable;
-        far: 10;
-        interval: 0
-      "
-      laser-cursor="
-        color: #00FFFF
-      "
-      laser-grab="
-        rig: #rig
-      "
-      joystick-turn="
-        speed: 1.8
-      "
+      meta-touch-controls="hand: right; model: true"
+      laser-controls="hand: right"
+      raycaster="objects: .grabbable; far: 10; interval: 0"
+      laser-cursor="color: #00FFFF"
+      laser-grab="rig: #rig"
+      joystick-turn="speed: 1.8"
       controller-debug
-      line="
-        color: #00FFFF;
-        opacity: 0.8
-      "
+      line="color: #00FFFF; opacity: 0.8"
     >
     </a-entity>
 
@@ -814,7 +582,7 @@
     depth="1"
     color="#4CC3D9"
     shadow="cast: true; receive: true"
-    dynamic-body="shape: box; mass: 2; friction: 0.5; restitution: 0.1; linearDamping: 0.4; angularDamping: 0.4"
+    physics-body="radius: 0.65; halfHeight: 0.5; restitution: 0.1; friction: 0.4"
   >
   </a-box>
 
@@ -825,7 +593,7 @@
     radius="1"
     color="#EF2D5E"
     shadow="cast: true; receive: true"
-    dynamic-body="shape: sphere; mass: 2; friction: 0.4; restitution: 0.3; linearDamping: 0.3; angularDamping: 0.4"
+    physics-body="radius: 1; halfHeight: 1; restitution: 0.4; friction: 0.2"
   >
   </a-sphere>
 
@@ -837,7 +605,7 @@
     radius="0.5"
     height="2"
     shadow="cast: true; receive: true"
-    dynamic-body="shape: cylinder; mass: 2; friction: 0.5; restitution: 0.1; linearDamping: 0.4; angularDamping: 0.4"
+    physics-body="radius: 0.55; halfHeight: 1; restitution: 0.1; friction: 0.4"
   >
   </a-cylinder>
 

@@ -4,113 +4,158 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>WebVR</title>
+
+<script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.2.0/dist/aframe-extras.min.js"></script>
+
 <style>
-  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body { background: #1e1e2e; color: #ffffff; font-family: Arial, Helvetica, sans-serif; }
+  a-scene { width: 100%; height: 100vh; display: block; }
 
-  html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-  }
-
-  body {
-    background: #1e1e2e;
-    color: #ffffff;
-    font-family: Arial, Helvetica, sans-serif;
-  }
-
-  #menu {
-    min-height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 60px 20px;
-  }
-
-  #menu h1 {
-    font-size: 34px;
-    font-weight: bold;
-    line-height: 1.25;
-    margin: 0 0 40px;
-    text-align: center;
-  }
-
-  .list {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    width: 360px;
-    margin: 0 auto;
-  }
-
-  .list button {
-    display: block;
-    width: 100%;
-    background: #4fc3d9;
-    color: #ffffff;
-    border: none;
-    text-decoration: none;
-    font-size: 17px;
-    font-family: inherit;
-    padding: 16px 20px;
-    border-radius: 10px;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .list button:hover {
-    background: #3bb4cc;
-  }
-
-  #loading {
-    display: none;
-    min-height: 100vh;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    color: #cfd8ff;
-  }
-
-  #back-link {
-    display: none;
+  #hint {
     position: fixed;
-    top: 14px;
-    left: 14px;
-    z-index: 999999;
-    background: rgba(0,0,0,0.55);
-    color: #ffffff;
-    text-decoration: none;
+    left: 0; right: 0; bottom: 0;
+    text-align: center;
+    padding: 14px 10px;
     font-size: 14px;
-    padding: 8px 14px;
-    border-radius: 8px;
+    color: #cfd8ff;
+    background: rgba(0,0,0,0.35);
+    pointer-events: none;
   }
+
+  #hint a { color: #ffffff; pointer-events: auto; }
 </style>
 </head>
 <body>
 
-<a id="back-link" href="#">← Retour au menu</a>
-
-<div id="menu">
-  <div>
-    <h1>WebVR</h1>
-    <div class="list">
-      <button type="button" onclick="launch('1')">Exercice 1 - Scène VR & déplacement</button>
-      <button type="button" onclick="launch('2')">Exercice 2 - Grab & Movement</button>
-      <button type="button" onclick="launch('3')">Exercice 3 - Grab, Movement & Weapon</button>
-      <button type="button" onclick="launch('4')">Exercice 4 - Grab, Movement, Weapon & Targets</button>
-    </div>
-  </div>
+<div id="hint">
+  Mets ton casque, clique sur « Entrer en VR », puis vise un panneau avec la manette et appuie sur la gâchette pour choisir ton exercice.
+  &nbsp;·&nbsp; <a href="#" onclick="location.reload(); return false;">Recharger la page</a>
 </div>
 
-<div id="loading">Chargement de l'exercice…</div>
+<a-scene
+  id="scene"
+  renderer="antialias: true; shadowMap: true"
+  shadow="type: pcfsoft; autoUpdate: true"
+  webxr="optionalFeatures: local-floor"
+  vr-mode-ui="enabled: true"
+  background="color: #111111"
+>
 
-<div id="vr-root"></div>
+  <!-- repli souris pour tester au clavier/souris sans casque -->
+  <a-entity cursor="rayOrigin: mouse" raycaster="objects: .menu-item; far: 20"></a-entity>
+
+  <a-assets></a-assets>
+
+  <a-entity id="content">
+
+    <a-entity light="type: ambient; intensity: 0.7"></a-entity>
+    <a-entity light="type: directional; intensity: 1; castShadow: true" position="-2 5 3"></a-entity>
+
+    <a-plane
+      position="0 0 0"
+      rotation="-90 0 0"
+      width="20"
+      height="20"
+      color="#7BC8A4"
+      shadow="receive: true">
+    </a-plane>
+
+    <a-sky color="#dfe6f0"></a-sky>
+
+    <a-entity id="menu-rig" position="0 0 2">
+      <a-camera id="menu-camera" position="0 1.6 0" look-controls="pointerLockEnabled: false"></a-camera>
+
+      <a-entity
+        id="menuLeftHand"
+        meta-touch-controls="hand: left; model: true"
+        laser-controls="hand: left"
+        raycaster="objects: .menu-item; far: 20"
+        line="color: #4fc3d9; opacity: 0.85">
+      </a-entity>
+
+      <a-entity
+        id="menuRightHand"
+        meta-touch-controls="hand: right; model: true"
+        laser-controls="hand: right"
+        raycaster="objects: .menu-item; far: 20"
+        line="color: #4fc3d9; opacity: 0.85">
+      </a-entity>
+    </a-entity>
+
+    <a-text
+      value="WebVR"
+      align="center"
+      color="#ffffff"
+      width="6"
+      position="0 2.5 -2">
+    </a-text>
+
+    <a-entity
+      class="menu-item"
+      data-ex="1"
+      geometry="primitive: plane; width: 1.8; height: 0.4"
+      material="color: #4fc3d9; side: double"
+      position="0 1.9 -2">
+      <a-text
+        value="Exercice 1 – Scène & déplacement"
+        align="center"
+        color="#ffffff"
+        width="2.6"
+        position="0 0 0.01">
+      </a-text>
+    </a-entity>
+
+    <a-entity
+      class="menu-item"
+      data-ex="2"
+      geometry="primitive: plane; width: 1.8; height: 0.4"
+      material="color: #4fc3d9; side: double"
+      position="0 1.45 -2">
+      <a-text
+        value="Exercice 2 – Grab & Movement"
+        align="center"
+        color="#ffffff"
+        width="2.6"
+        position="0 0 0.01">
+      </a-text>
+    </a-entity>
+
+    <a-entity
+      class="menu-item"
+      data-ex="3"
+      geometry="primitive: plane; width: 1.8; height: 0.4"
+      material="color: #4fc3d9; side: double"
+      position="0 1.0 -2">
+      <a-text
+        value="Exercice 3 – + Arme"
+        align="center"
+        color="#ffffff"
+        width="2.6"
+        position="0 0 0.01">
+      </a-text>
+    </a-entity>
+
+    <a-entity
+      class="menu-item"
+      data-ex="4"
+      geometry="primitive: plane; width: 1.8; height: 0.4"
+      material="color: #4fc3d9; side: double"
+      position="0 0.55 -2">
+      <a-text
+        value="Exercice 4 – + Cibles"
+        align="center"
+        color="#ffffff"
+        width="2.6"
+        position="0 0 0.01">
+      </a-text>
+    </a-entity>
+
+  </a-entity>
+</a-scene>
 
 <template id="tpl-ex1">
-<a-scene
-            renderer="antialias: true"
-            shadow="type: pcfsoft; autoUpdate: true"
-            webxr="optionalFeatures: local-floor">
             <a-entity
                 light="type: directional;
                        intensity: 1;
@@ -194,16 +239,10 @@
             <!-- Ciel -->
             <a-sky color="#ECECEC"></a-sky>
 
-            </a-scene>
+            
 </template>
 
 <template id="tpl-ex2">
-<a-scene
-  background="color: #111111"
-  renderer="antialias: true; shadowMap: true"
-  vr-mode-ui="enabled: true"
-  physics-world="gravity: -9.81"
->
   <a-entity light="type: ambient; intensity: 0.7"></a-entity>
   <a-entity light="type: directional; intensity: 1; castShadow: true" position="-2 5 3"></a-entity>
 
@@ -289,17 +328,9 @@
   </a-cylinder>
 
   <a-sky color="#FFFFFF"></a-sky>
-</a-scene>
 </template>
 
 <template id="tpl-ex3">
-<a-scene
-  background="color: #111111"
-  renderer="antialias: true; shadowMap: true"
-  vr-mode-ui="enabled: true"
-  physics-world="gravity: -9.81; floorHalfExtent: 10; killY: -20"
->
-
   <!--
   <a-assets>
     <a-asset-item id="gunModel" src="models/gun.glb"></a-asset-item>
@@ -417,19 +448,9 @@
   </a-entity>
 
   <a-sky color="#FFFFFF"></a-sky>
-</a-scene>
 </template>
 
 <template id="tpl-ex4">
-<a-scene
-  background="color: #111111"
-  renderer="antialias: true; shadowMap: true"
-  vr-mode-ui="enabled: true"
-  physics-world="gravity: -9.81; floorHalfExtent: 10; killY: -20"
-  impact-audio="volume: 0.6; refDistance: 1; maxDistance: 25; rolloffFactor: 2"
-  target-spawner="spawnInterval: 4; maxTargets: 5; initialTargets: 3"
->
-
   <!--
   <a-assets>
     <a-asset-item id="gunModel" src="models/gun.glb"></a-asset-item>
@@ -514,7 +535,6 @@
   </a-entity>
 
   <a-sky color="#FFFFFF"></a-sky>
-</a-scene>
 </template>
 
 <script type="text/plain" id="code-ex1">
@@ -3653,55 +3673,60 @@
 
 <script>
   var EXERCISES = {
-    '1': { ver: '1.5.0', extras: true },
-    '2': { ver: '1.7.0', extras: false },
-    '3': { ver: '1.7.0', extras: false },
-    '4': { ver: '1.7.0', extras: false },
+    '1': { attrs: {} },
+    '2': { attrs: {"background": "color: #111111", "physics-world": "gravity: -9.81"} },
+    '3': { attrs: {"background": "color: #111111", "physics-world": "gravity: -9.81; floorHalfExtent: 10; killY: -20"} },
+    '4': { attrs: {"background": "color: #111111", "physics-world": "gravity: -9.81; floorHalfExtent: 10; killY: -20", "impact-audio": "volume: 0.6; refDistance: 1; maxDistance: 25; rolloffFactor: 2", "target-spawner": "spawnInterval: 4; maxTargets: 5; initialTargets: 3"} },
   };
 
-  document.getElementById('back-link').href = location.pathname;
+  function highlightOn(el)  { el.setAttribute('material', 'color', '#3bb4cc'); }
+  function highlightOff(el) { el.setAttribute('material', 'color', '#4fc3d9'); }
 
-  function loadScript(src) {
-    return new Promise(function (resolve, reject) {
-      var s = document.createElement('script');
-      s.src = src;
-      s.onload = resolve;
-      s.onerror = reject;
-      document.head.appendChild(s);
+  document.addEventListener('DOMContentLoaded', function () {
+    document.querySelectorAll('.menu-item').forEach(function (el) {
+      el.addEventListener('mouseenter', function () { highlightOn(el); });
+      el.addEventListener('mouseleave', function () { highlightOff(el); });
+      el.addEventListener('click', function () {
+        selectExercise(el.getAttribute('data-ex'));
+      });
     });
-  }
+  });
 
-  function launch(n) {
-    location.search = '?ex=' + n;
-  }
-
-  async function boot(n) {
+  function selectExercise(n) {
     var info = EXERCISES[n];
     if (!info) return;
 
-    document.getElementById('menu').style.display = 'none';
-    document.getElementById('back-link').style.display = 'block';
-    var loading = document.getElementById('loading');
-    loading.style.display = 'flex';
+    var sceneEl = document.getElementById('scene');
+    var content = document.getElementById('content');
 
-    await loadScript('https://aframe.io/releases/' + info.ver + '/aframe.min.js');
-    if (info.extras) {
-      await loadScript('https://cdn.jsdelivr.net/npm/aframe-extras@7.2.0/dist/aframe-extras.min.js');
-    }
+    // message de chargement affiché directement dans la scène VR
+    content.innerHTML = '';
+    var loadingText = document.createElement('a-text');
+    loadingText.setAttribute('value', 'Chargement de l\'exercice ' + n + '...');
+    loadingText.setAttribute('align', 'center');
+    loadingText.setAttribute('color', '#ffffff');
+    loadingText.setAttribute('width', '4');
+    loadingText.setAttribute('position', '0 1.6 -2');
+    content.appendChild(loadingText);
 
-    var code = document.getElementById('code-ex' + n).textContent;
-    (0, eval)(code);
+    // laisse le temps au message de s'afficher avant d'injecter la suite
+    setTimeout(function () {
+      // enregistre les composants/systèmes propres à cet exercice
+      var code = document.getElementById('code-ex' + n).textContent;
+      (0, eval)(code);
 
-    var tpl = document.getElementById('tpl-ex' + n);
-    document.getElementById('vr-root').appendChild(tpl.content.cloneNode(true));
+      // applique les réglages de scène propres à cet exercice (physique, cibles, son...)
+      Object.keys(info.attrs).forEach(function (key) {
+        sceneEl.setAttribute(key, info.attrs[key]);
+      });
 
-    loading.style.display = 'none';
-  }
+      // remplace le contenu par la scène de l'exercice choisi
+      var tpl = document.getElementById('tpl-ex' + n);
+      content.innerHTML = '';
+      content.appendChild(tpl.content.cloneNode(true));
 
-  var params = new URLSearchParams(location.search);
-  var ex = params.get('ex');
-  if (ex && EXERCISES[ex]) {
-    boot(ex);
+      document.getElementById('hint').style.display = 'none';
+    }, 50);
   }
 </script>
 

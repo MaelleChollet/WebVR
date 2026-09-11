@@ -13,18 +13,13 @@
   <script>
     // =========================================================
     // SYSTEME PHYSIQUE MAISON
-    // FIX : le "sol" ne bloque plus infiniment -> seulement dans
-    // les limites réelles du plan visuel (floorHalfExtent).
-    // Au-delà, les objets tombent normalement dans le vide.
-    // Sécurité : un objet tombé trop bas est replacé à son point
-    // de départ (évite de devoir recharger la page en testant).
     // =========================================================
     AFRAME.registerSystem('physics-world', {
 
       schema: {
         gravity: { type: 'number', default: -9.81 },
-        floorHalfExtent: { type: 'number', default: 10 }, // le plan fait 20x20 -> ±10
-        killY: { type: 'number', default: -20 }            // hauteur de "respawn de secours"
+        floorHalfExtent: { type: 'number', default: 10 },
+        killY: { type: 'number', default: -20 }
       },
 
       init: function () {
@@ -59,7 +54,6 @@
 
         for (let s = 0; s < subSteps; s++) {
 
-          // 1) Gravité + intégration + contact sol (limité aux bords du plan)
           for (let i = 0; i < this.bodies.length; i++) {
             const body = this.bodies[i];
             if (body.kinematic) continue;
@@ -84,9 +78,6 @@
               quat.premultiply(deltaQuat);
             }
 
-            // Le sol n'existe QUE dans les limites réelles du plan visuel.
-            // En dehors (|x| ou |z| > floorHalfExtent), pas de collision
-            // -> l'objet continue de tomber, comme demandé.
             const withinFloorBounds =
               Math.abs(pos.x) <= floorHalfExtent &&
               Math.abs(pos.z) <= floorHalfExtent;
@@ -163,7 +154,6 @@
             body.angularVelocity.multiplyScalar(0.995);
           }
 
-          // 2) Collisions entre objets
           for (let i = 0; i < this.bodies.length; i++) {
             for (let j = i + 1; j < this.bodies.length; j++) {
 
@@ -222,12 +212,14 @@
           }
         }
 
-        // 3) Sécurité "kill plane" : un objet tombé trop bas (hors du
-        // plan, dans le vide) réapparaît à sa position de départ.
-        // Pratique en test, facile à retirer si non désiré.
+        // Sécurité "kill plane" : uniquement pour les objets qui ont
+        // un vrai sens à "revenir" (box/sphère/cylindre/arme). Les
+        // balles (noRespawn: true) ne reviennent jamais, elles
+        // continuent de tomber puis sont supprimées par leur timeout.
         for (let i = 0; i < this.bodies.length; i++) {
           const body = this.bodies[i];
           if (body.kinematic) continue;
+          if (body.data.noRespawn) continue;
 
           if (body.el.object3D.position.y < this.data.killY) {
             body.el.object3D.position.copy(body.spawnPosition);
@@ -254,7 +246,11 @@
         radius: { type: 'number', default: 0.5 },
 
         restitution: { type: 'number', default: 0.15 },
-        friction: { type: 'number', default: 0.35 }
+        friction: { type: 'number', default: 0.35 },
+
+        // Les balles n'ont pas besoin (et ne doivent pas) revenir à
+        // un "point de spawn" après être tombées du bord du sol.
+        noRespawn: { type: 'boolean', default: false }
       },
 
       init: function () {
@@ -265,8 +261,6 @@
         this.justThrownTimer = 0;
         this.restTime = 0;
 
-        // Position/orientation de départ, utilisées par la sécurité
-        // "kill plane" du système physique.
         this.spawnPosition = this.el.object3D.position.clone();
         this.spawnQuaternion = this.el.object3D.quaternion.clone();
 
@@ -748,23 +742,22 @@
 
 
     // =========================================================
-    // Grab + tir de l'arme (grip = tenir, trigger = tirer)
-    // FIX orientation : "gripOffsetRotation" applique un léger
-    // correctif d'inclinaison, car le repère brut du contrôleur
-    // ne correspond pas exactement à la direction naturelle de
-    // pointage de la main -> à ajuster précisément à l'usage.
+    // Grab + tir de l'arme
+    // FIX : pendant que l'arme est tenue, le raycaster de la main
+    // (celui qui dessine le laser et le curseur) est reconfiguré
+    // pour partir EXACTEMENT du canon et pointer EXACTEMENT dans
+    // la même direction que la balle -> plus de décalage visuel.
+    // Remis à la normale (grab d'objets) au relâchement.
     // =========================================================
     AFRAME.registerComponent('gun-grab', {
 
       schema: {
         gripOffsetPosition: { type: 'vec3', default: { x: 0, y: -0.02, z: 0.05 } },
-
-        // Correctif d'angle empirique (en degrés) : la plupart des
-        // apps VR appliquent -25° à -35° sur X pour que l'arme
-        // pointe naturellement là où le poignet pointe réellement.
-        // AJUSTE CETTE VALEUR en testant, chaque main/contrôleur
-        // peut nécessiter un réglage légèrement différent.
         gripOffsetRotation: { type: 'vec3', default: { x: -30, y: 0, z: 0 } },
+
+        // Doit correspondre à la position locale de l'entité ".muzzle"
+        // à l'intérieur de #gun (cf. balisage HTML plus bas)
+        muzzleLocalOffset: { type: 'vec3', default: { x: 0, y: 0.02, z: -0.28 } },
 
         bulletSpeed: { type: 'number', default: 20 },
         bulletRadius: { type: 'number', default: 0.035 },
@@ -786,6 +779,40 @@
         this.el.addEventListener('gripdown', () => this.startGrabGun());
         this.el.addEventListener('gripup', () => this.endGrabGun());
         this.el.addEventListener('triggerdown', () => this.tryFire());
+      },
+
+      // Calcule, dans le repère LOCAL de la main, le point de sortie
+      // du canon et sa direction -> utilisé à la fois pour orienter
+      // le raycaster (visée) et pour positionner l'arme/tirer.
+      computeMuzzleLocalTransform: function () {
+
+        const offsetPos = new THREE.Vector3(
+          this.data.gripOffsetPosition.x,
+          this.data.gripOffsetPosition.y,
+          this.data.gripOffsetPosition.z
+        );
+
+        const offsetEuler = new THREE.Euler(
+          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.x),
+          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.y),
+          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.z)
+        );
+        const offsetQuat = new THREE.Quaternion().setFromEuler(offsetEuler);
+
+        const muzzleLocal = new THREE.Vector3(
+          this.data.muzzleLocalOffset.x,
+          this.data.muzzleLocalOffset.y,
+          this.data.muzzleLocalOffset.z
+        );
+
+        const origin = muzzleLocal.clone()
+          .applyQuaternion(offsetQuat)
+          .add(offsetPos);
+
+        const direction = new THREE.Vector3(0, 0, -1)
+          .applyQuaternion(offsetQuat);
+
+        return { origin: origin, direction: direction, offsetQuat: offsetQuat, offsetPos: offsetPos };
       },
 
       startGrabGun: function () {
@@ -843,6 +870,12 @@
         this.velocityHistory = [];
         this.hasPrevPosition = false;
 
+        // Le laser/curseur de cette main pointe désormais exactement
+        // comme le canon de l'arme -> ce que tu vois = ce que tu tires
+        const transform = this.computeMuzzleLocalTransform();
+        this.el.setAttribute('raycaster', 'origin', transform.origin);
+        this.el.setAttribute('raycaster', 'direction', transform.direction);
+
         target.classList.add('grabbed');
         target.emit('grab-start');
       },
@@ -871,6 +904,12 @@
         object.emit('grab-end');
 
         this.heldGun = null;
+
+        // On remet le raycaster de cette main en mode "normal"
+        // (origine/direction par défaut) pour pouvoir de nouveau
+        // attraper d'autres objets normalement.
+        this.el.setAttribute('raycaster', 'origin', { x: 0, y: 0, z: 0 });
+        this.el.setAttribute('raycaster', 'direction', { x: 0, y: 0, z: -1 });
       },
 
       tryFire: function () {
@@ -921,11 +960,15 @@
         bullet.setAttribute('position', position);
         bullet.classList.add('bullet');
 
+        // noRespawn: true -> une balle qui tombe du bord du sol ne
+        // revient JAMAIS, elle continue de tomber puis est nettoyée
+        // par son timeout.
         bullet.setAttribute('physics-body', {
           shape: 'sphere',
           radius: this.data.bulletRadius,
           restitution: 0.2,
-          friction: 0.3
+          friction: 0.3,
+          noRespawn: true
         });
 
         scene.appendChild(bullet);
@@ -968,21 +1011,13 @@
         this.prevControllerPosition.copy(controllerPos);
         this.hasPrevPosition = true;
 
-        const offsetPos = new THREE.Vector3(
-          this.data.gripOffsetPosition.x,
-          this.data.gripOffsetPosition.y,
-          this.data.gripOffsetPosition.z
-        );
+        const transform = this.computeMuzzleLocalTransform();
 
-        const offsetEuler = new THREE.Euler(
-          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.x),
-          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.y),
-          THREE.MathUtils.degToRad(this.data.gripOffsetRotation.z)
-        );
-        const offsetQuat = new THREE.Quaternion().setFromEuler(offsetEuler);
+        const worldPos = transform.offsetPos.clone()
+          .applyQuaternion(controllerQuat)
+          .add(controllerPos);
 
-        const worldPos = offsetPos.clone().applyQuaternion(controllerQuat).add(controllerPos);
-        const worldQuat = controllerQuat.clone().multiply(offsetQuat);
+        const worldQuat = controllerQuat.clone().multiply(transform.offsetQuat);
 
         const object = this.heldGun.object3D;
 

@@ -13,11 +13,18 @@
   <script>
     // =========================================================
     // SYSTEME PHYSIQUE MAISON
+    // FIX : le "sol" ne bloque plus infiniment -> seulement dans
+    // les limites réelles du plan visuel (floorHalfExtent).
+    // Au-delà, les objets tombent normalement dans le vide.
+    // Sécurité : un objet tombé trop bas est replacé à son point
+    // de départ (évite de devoir recharger la page en testant).
     // =========================================================
     AFRAME.registerSystem('physics-world', {
 
       schema: {
-        gravity: { type: 'number', default: -9.81 }
+        gravity: { type: 'number', default: -9.81 },
+        floorHalfExtent: { type: 'number', default: 10 }, // le plan fait 20x20 -> ±10
+        killY: { type: 'number', default: -20 }            // hauteur de "respawn de secours"
       },
 
       init: function () {
@@ -48,8 +55,11 @@
         const ANGULAR_SLEEP_EPS = 0.12;
         const SLEEP_DELAY = 0.25;
 
+        const floorHalfExtent = this.data.floorHalfExtent;
+
         for (let s = 0; s < subSteps; s++) {
 
+          // 1) Gravité + intégration + contact sol (limité aux bords du plan)
           for (let i = 0; i < this.bodies.length; i++) {
             const body = this.bodies[i];
             if (body.kinematic) continue;
@@ -74,68 +84,78 @@
               quat.premultiply(deltaQuat);
             }
 
-            const contactLocal = body.getSupportPointLocal(DOWN);
-            const r = contactLocal.clone().applyQuaternion(quat);
-            const contactWorldY = pos.y + r.y;
+            // Le sol n'existe QUE dans les limites réelles du plan visuel.
+            // En dehors (|x| ou |z| > floorHalfExtent), pas de collision
+            // -> l'objet continue de tomber, comme demandé.
+            const withinFloorBounds =
+              Math.abs(pos.x) <= floorHalfExtent &&
+              Math.abs(pos.z) <= floorHalfExtent;
 
-            if (contactWorldY < 0) {
+            if (withinFloorBounds) {
 
-              pos.y -= contactWorldY;
+              const contactLocal = body.getSupportPointLocal(DOWN);
+              const r = contactLocal.clone().applyQuaternion(quat);
+              const contactWorldY = pos.y + r.y;
 
-              const pointVelocity = body.velocity.clone().add(
-                body.angularVelocity.clone().cross(r)
-              );
+              if (contactWorldY < 0) {
 
-              const vAlongNormal = pointVelocity.dot(UP);
+                pos.y -= contactWorldY;
 
-              if (vAlongNormal < 0) {
-
-                const invMass = 1;
-                const invInertia = 1 / body.inertia;
-
-                const rxn = r.clone().cross(UP);
-                const denom = invMass + invInertia * rxn.dot(rxn);
-
-                const j = -(1 + body.data.restitution) * vAlongNormal / denom;
-                const impulse = UP.clone().multiplyScalar(j);
-
-                body.velocity.add(impulse.clone().multiplyScalar(invMass));
-                body.angularVelocity.add(
-                  r.clone().cross(impulse).multiplyScalar(invInertia)
+                const pointVelocity = body.velocity.clone().add(
+                  body.angularVelocity.clone().cross(r)
                 );
 
-                if (body.justThrownTimer <= 0) {
+                const vAlongNormal = pointVelocity.dot(UP);
 
-                  const tangentVel = pointVelocity.clone().sub(UP.clone().multiplyScalar(vAlongNormal));
-                  const tangentSpeed = tangentVel.length();
+                if (vAlongNormal < 0) {
 
-                  if (tangentSpeed > 0.0001) {
-                    const tangentDir = tangentVel.clone().divideScalar(tangentSpeed);
-                    const maxFriction = body.data.friction * Math.abs(j);
-                    const frictionMag = Math.min(tangentSpeed * invMass, maxFriction);
-                    const frictionImpulse = tangentDir.multiplyScalar(-frictionMag);
+                  const invMass = 1;
+                  const invInertia = 1 / body.inertia;
 
-                    body.velocity.add(frictionImpulse.clone().multiplyScalar(invMass));
-                    body.angularVelocity.add(
-                      r.clone().cross(frictionImpulse).multiplyScalar(invInertia)
-                    );
+                  const rxn = r.clone().cross(UP);
+                  const denom = invMass + invInertia * rxn.dot(rxn);
+
+                  const j = -(1 + body.data.restitution) * vAlongNormal / denom;
+                  const impulse = UP.clone().multiplyScalar(j);
+
+                  body.velocity.add(impulse.clone().multiplyScalar(invMass));
+                  body.angularVelocity.add(
+                    r.clone().cross(impulse).multiplyScalar(invInertia)
+                  );
+
+                  if (body.justThrownTimer <= 0) {
+
+                    const tangentVel = pointVelocity.clone().sub(UP.clone().multiplyScalar(vAlongNormal));
+                    const tangentSpeed = tangentVel.length();
+
+                    if (tangentSpeed > 0.0001) {
+                      const tangentDir = tangentVel.clone().divideScalar(tangentSpeed);
+                      const maxFriction = body.data.friction * Math.abs(j);
+                      const frictionMag = Math.min(tangentSpeed * invMass, maxFriction);
+                      const frictionImpulse = tangentDir.multiplyScalar(-frictionMag);
+
+                      body.velocity.add(frictionImpulse.clone().multiplyScalar(invMass));
+                      body.angularVelocity.add(
+                        r.clone().cross(frictionImpulse).multiplyScalar(invInertia)
+                      );
+                    }
                   }
                 }
-              }
 
-              body.angularVelocity.multiplyScalar(0.9);
+                body.angularVelocity.multiplyScalar(0.9);
 
-              if (
-                body.velocity.length() < LINEAR_SLEEP_EPS &&
-                body.angularVelocity.length() < ANGULAR_SLEEP_EPS
-              ) {
-                body.restTime += subDt;
-                if (body.restTime > SLEEP_DELAY) {
-                  body.velocity.set(0, 0, 0);
-                  body.angularVelocity.set(0, 0, 0);
+                if (
+                  body.velocity.length() < LINEAR_SLEEP_EPS &&
+                  body.angularVelocity.length() < ANGULAR_SLEEP_EPS
+                ) {
+                  body.restTime += subDt;
+                  if (body.restTime > SLEEP_DELAY) {
+                    body.velocity.set(0, 0, 0);
+                    body.angularVelocity.set(0, 0, 0);
+                  }
+                } else {
+                  body.restTime = 0;
                 }
-              } else {
-                body.restTime = 0;
               }
             }
 
@@ -143,6 +163,7 @@
             body.angularVelocity.multiplyScalar(0.995);
           }
 
+          // 2) Collisions entre objets
           for (let i = 0; i < this.bodies.length; i++) {
             for (let j = i + 1; j < this.bodies.length; j++) {
 
@@ -200,6 +221,23 @@
             }
           }
         }
+
+        // 3) Sécurité "kill plane" : un objet tombé trop bas (hors du
+        // plan, dans le vide) réapparaît à sa position de départ.
+        // Pratique en test, facile à retirer si non désiré.
+        for (let i = 0; i < this.bodies.length; i++) {
+          const body = this.bodies[i];
+          if (body.kinematic) continue;
+
+          if (body.el.object3D.position.y < this.data.killY) {
+            body.el.object3D.position.copy(body.spawnPosition);
+            body.el.object3D.quaternion.copy(body.spawnQuaternion);
+            body.velocity.set(0, 0, 0);
+            body.angularVelocity.set(0, 0, 0);
+            body.restTime = 0;
+            body.justThrownTimer = 0;
+          }
+        }
       }
 
     });
@@ -226,6 +264,11 @@
 
         this.justThrownTimer = 0;
         this.restTime = 0;
+
+        // Position/orientation de départ, utilisées par la sécurité
+        // "kill plane" du système physique.
+        this.spawnPosition = this.el.object3D.position.clone();
+        this.spawnQuaternion = this.el.object3D.quaternion.clone();
 
         this._invQuat = new THREE.Quaternion();
         this._dirLocal = new THREE.Vector3();
@@ -334,10 +377,6 @@
 
     // =========================================================
     // Mouvement avec le joystick gauche
-    // FIX : le signe de l'axe Y était inversé par rapport à ce
-    // que renvoie réellement le matériel testé -> corrigé.
-    // "invertForward" permet de re-basculer sans toucher au code
-    // si un autre casque/navigateur donne l'axe dans l'autre sens.
     // =========================================================
     AFRAME.registerComponent('left-thumbstick-move', {
 
@@ -366,7 +405,6 @@
 
         const x = this.axisX;
 
-        // Avant corrigé (plus de négation par défaut, cf. test réel)
         let z = this.axisY;
         if (this.data.invertForward) z = -z;
 
@@ -711,12 +749,22 @@
 
     // =========================================================
     // Grab + tir de l'arme (grip = tenir, trigger = tirer)
+    // FIX orientation : "gripOffsetRotation" applique un léger
+    // correctif d'inclinaison, car le repère brut du contrôleur
+    // ne correspond pas exactement à la direction naturelle de
+    // pointage de la main -> à ajuster précisément à l'usage.
     // =========================================================
     AFRAME.registerComponent('gun-grab', {
 
       schema: {
         gripOffsetPosition: { type: 'vec3', default: { x: 0, y: -0.02, z: 0.05 } },
-        gripOffsetRotation: { type: 'vec3', default: { x: 0, y: 0, z: 0 } },
+
+        // Correctif d'angle empirique (en degrés) : la plupart des
+        // apps VR appliquent -25° à -35° sur X pour que l'arme
+        // pointe naturellement là où le poignet pointe réellement.
+        // AJUSTE CETTE VALEUR en testant, chaque main/contrôleur
+        // peut nécessiter un réglage légèrement différent.
+        gripOffsetRotation: { type: 'vec3', default: { x: -30, y: 0, z: 0 } },
 
         bulletSpeed: { type: 'number', default: 20 },
         bulletRadius: { type: 'number', default: 0.035 },
@@ -995,7 +1043,7 @@
   background="color: #111111"
   renderer="antialias: true; shadowMap: true"
   vr-mode-ui="enabled: true"
-  physics-world="gravity: -9.81"
+  physics-world="gravity: -9.81; floorHalfExtent: 10; killY: -20"
 >
 
   <!--
@@ -1031,7 +1079,7 @@
       raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
-      gun-grab
+      gun-grab="gripOffsetRotation: -30 0 0"
       left-thumbstick-move="rig: #rig; speed: 2.0; invertForward: false"
       controller-debug
       line="color: #00FFFF; opacity: 0.8"
@@ -1045,7 +1093,7 @@
       raycaster="objects: .grabbable, .gun-grabbable; far: 10; interval: 0"
       laser-cursor="color: #00FFFF"
       laser-grab="rig: #rig"
-      gun-grab
+      gun-grab="gripOffsetRotation: -30 0 0"
       joystick-turn="speed: 1.8"
       controller-debug
       line="color: #00FFFF; opacity: 0.8"
@@ -1090,11 +1138,6 @@
   >
   </a-cylinder>
 
-  <!--
-    ARME. FIX : ajout d'une boîte invisible plus grande sur #gun,
-    servant de cible pour le laser/raycaster -> beaucoup plus facile
-    à viser/attraper que les petites pièces visuelles individuelles.
-  -->
   <a-entity
     id="gun"
     class="gun-grabbable"

@@ -31,6 +31,7 @@
 
 <div id="hint">
   Mets ton casque, clique sur « Entrer en VR », puis vise un panneau avec la manette et appuie sur la gâchette pour choisir ton exercice.
+  Une fois dans un exercice, regarde quelques secondes le bouton « Menu » flottant au-dessus de toi pour revenir choisir un autre exercice.
   &nbsp;·&nbsp; <a href="#" onclick="location.reload(); return false;">Recharger la page</a>
 </div>
 
@@ -44,11 +45,35 @@
 >
 
   <!-- repli souris pour tester au clavier/souris sans casque -->
-  <a-entity cursor="rayOrigin: mouse" raycaster="objects: .menu-item; far: 20"></a-entity>
+  <a-entity cursor="rayOrigin: mouse" raycaster="objects: .menu-item, .global-menu-btn; far: 20"></a-entity>
+
+  <!-- bouton persistant "retour au menu", visible quel que soit l'exercice en cours,
+       activable en le regardant quelques secondes (fonctionne sans dépendre des
+       boutons/joysticks propres à chaque exercice) -->
+  <a-entity
+    id="global-menu-btn"
+    class="global-menu-btn"
+    geometry="primitive: plane; width: 1.4; height: 0.4"
+    material="color: #2c3454; opacity: 0.9; side: double"
+    position="0 3.4 -2"
+    visible="false">
+    <a-text value="⌂ Menu" align="center" color="#ffffff" width="3" position="0 0 0.01"></a-text>
+    <a-ring
+      id="global-menu-fuse-ring"
+      radius-inner="0.09" radius-outer="0.12"
+      color="#4fc3d9"
+      position="0 0 0.02"
+      visible="false">
+    </a-ring>
+  </a-entity>
 
   <a-assets></a-assets>
 
-  <a-entity id="content">
+  <a-entity id="content"></a-entity>
+
+</a-scene>
+
+<template id="tpl-menu">
 
     <a-entity light="type: ambient; intensity: 0.7"></a-entity>
     <a-entity light="type: directional; intensity: 1; castShadow: true" position="-2 5 3"></a-entity>
@@ -152,8 +177,7 @@
       </a-text>
     </a-entity>
 
-  </a-entity>
-</a-scene>
+  </template>
 
 <template id="tpl-ex1">
             <a-entity
@@ -1722,7 +1746,7 @@
         this.cursor.setAttribute('color', this.data.color);
         this.cursor.setAttribute('visible', 'false');
         this.cursor.setAttribute('material', 'shader: flat; opacity: 0.95');
-        this.el.sceneEl.appendChild(this.cursor);
+        document.getElementById('content').appendChild(this.cursor);
 
         this.onIntersection = this.onIntersection.bind(this);
         this.onClear = this.onClear.bind(this);
@@ -2203,7 +2227,7 @@
 
       spawnBullet: function (position, direction) {
 
-        const scene = this.el.sceneEl;
+        const scene = document.getElementById('content');
         const bullet = document.createElement('a-entity');
 
         bullet.setAttribute('geometry', {
@@ -2902,7 +2926,7 @@
 
         const materialData = this.el.getAttribute('material');
         const color = (materialData && materialData.color) || '#FFFFFF';
-        spawnHitParticles(this.el.sceneEl, worldPos, color);
+        spawnHitParticles(document.getElementById('content'), worldPos, color);
 
         if (this.el.parentNode) {
           this.el.parentNode.removeChild(this.el);
@@ -2991,7 +3015,7 @@
           el.setAttribute('physics-body', 'shape: cylinder; radius: 0.35; height: 0.7; restitution: 0.1; friction: 0.4');
         }
 
-        this.el.sceneEl.appendChild(el);
+        document.getElementById('content').appendChild(el);
         this.activeTargets++;
       }
 
@@ -3086,7 +3110,7 @@
         this.cursor.setAttribute('color', this.data.color);
         this.cursor.setAttribute('visible', 'false');
         this.cursor.setAttribute('material', 'shader: flat; opacity: 0.95');
-        this.el.sceneEl.appendChild(this.cursor);
+        document.getElementById('content').appendChild(this.cursor);
 
         this.onIntersection = this.onIntersection.bind(this);
         this.onClear = this.onClear.bind(this);
@@ -3547,7 +3571,7 @@
 
       spawnBullet: function (position, direction) {
 
-        const scene = this.el.sceneEl;
+        const scene = document.getElementById('content');
         const bullet = document.createElement('a-entity');
 
         bullet.setAttribute('geometry', {
@@ -3679,10 +3703,15 @@
     '4': { attrs: {"background": "color: #111111", "physics-world": "gravity: -9.81; floorHalfExtent: 10; killY: -20", "impact-audio": "volume: 0.6; refDistance: 1; maxDistance: 25; rolloffFactor: 2", "target-spawner": "spawnInterval: 4; maxTargets: 5; initialTargets: 3"} },
   };
 
+  // tous les composants/systèmes personnalisés définis par au moins un exercice
+  var CUSTOM_NAMES = ["controller-debug", "gun-grab", "impact-audio", "joystick-turn", "laser-cursor", "laser-grab", "left-thumbstick-move", "particle-piece", "physics-body", "physics-world", "target", "target-spawner"];
+
+  var DYNAMIC_ATTRS = ['background', 'physics-world', 'impact-audio', 'target-spawner'];
+
   function highlightOn(el)  { el.setAttribute('material', 'color', '#3bb4cc'); }
   function highlightOff(el) { el.setAttribute('material', 'color', '#4fc3d9'); }
 
-  document.addEventListener('DOMContentLoaded', function () {
+  function wireMenuPanels() {
     document.querySelectorAll('.menu-item').forEach(function (el) {
       el.addEventListener('mouseenter', function () { highlightOn(el); });
       el.addEventListener('mouseleave', function () { highlightOff(el); });
@@ -3690,7 +3719,56 @@
         selectExercise(el.getAttribute('data-ex'));
       });
     });
-  });
+  }
+
+  function showMenu() {
+    var content = document.getElementById('content');
+    content.innerHTML = '';
+    var tpl = document.getElementById('tpl-menu');
+    content.appendChild(tpl.content.cloneNode(true));
+    wireMenuPanels();
+
+    document.getElementById('global-menu-btn').setAttribute('visible', 'false');
+    document.getElementById('hint').style.display = '';
+  }
+
+  function returnToMenu() {
+    var sceneEl = document.getElementById('scene');
+    DYNAMIC_ATTRS.forEach(function (key) {
+      if (sceneEl.hasAttribute(key)) sceneEl.removeAttribute(key);
+    });
+    showMenu();
+  }
+
+  // dé-enregistre les composants/systèmes de l'exercice précédent pour
+  // pouvoir charger un exercice différent sans recharger la page
+  function resetComponentRegistry() {
+    CUSTOM_NAMES.forEach(function (name) {
+      if (window.AFRAME.components && window.AFRAME.components[name]) {
+        delete window.AFRAME.components[name];
+      }
+      if (window.AFRAME.systems && window.AFRAME.systems[name]) {
+        delete window.AFRAME.systems[name];
+      }
+    });
+  }
+
+  function wireGlobalMenuButton(camEl) {
+    if (!camEl) return;
+    camEl.setAttribute('cursor', 'fuse: true; fuseTimeout: 1200');
+    camEl.setAttribute('raycaster', 'objects: .global-menu-btn; far: 30');
+
+    var btn = document.getElementById('global-menu-btn');
+    var ring = document.getElementById('global-menu-fuse-ring');
+    btn.setAttribute('visible', 'true');
+
+    btn.addEventListener('mouseenter', function () { ring.setAttribute('visible', 'true'); });
+    btn.addEventListener('mouseleave', function () { ring.setAttribute('visible', 'false'); });
+    btn.addEventListener('click', function () {
+      ring.setAttribute('visible', 'false');
+      returnToMenu();
+    });
+  }
 
   function selectExercise(n) {
     var info = EXERCISES[n];
@@ -3698,6 +3776,8 @@
 
     var sceneEl = document.getElementById('scene');
     var content = document.getElementById('content');
+
+    document.getElementById('global-menu-btn').setAttribute('visible', 'false');
 
     // message de chargement affiché directement dans la scène VR
     content.innerHTML = '';
@@ -3711,6 +3791,14 @@
 
     // laisse le temps au message de s'afficher avant d'injecter la suite
     setTimeout(function () {
+      // retire proprement les réglages de scène de l'exercice précédent
+      DYNAMIC_ATTRS.forEach(function (key) {
+        if (sceneEl.hasAttribute(key)) sceneEl.removeAttribute(key);
+      });
+
+      // libère les anciens composants/systèmes pour pouvoir en enregistrer de nouveaux
+      resetComponentRegistry();
+
       // enregistre les composants/systèmes propres à cet exercice
       var code = document.getElementById('code-ex' + n).textContent;
       (0, eval)(code);
@@ -3725,9 +3813,17 @@
       content.innerHTML = '';
       content.appendChild(tpl.content.cloneNode(true));
 
+      // attache le bouton flottant "retour au menu" à la caméra de cet exercice
+      var camEl = content.querySelector('[camera]');
+      wireGlobalMenuButton(camEl);
+
       document.getElementById('hint').style.display = 'none';
     }, 50);
   }
+
+  document.addEventListener('DOMContentLoaded', function () {
+    showMenu();
+  });
 </script>
 
 </body>

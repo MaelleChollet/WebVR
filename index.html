@@ -2,36 +2,64 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+  >
 
   <title>VR - Grab & Movement & Physique</title>
 
-  <!-- A-Frame -->
+
+  <!-- ============================================================
+       A-FRAME
+       ============================================================ -->
+
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
 
-  <!-- movement-controls -->
+
+  <!-- ============================================================
+       A-FRAME EXTRAS
+       ============================================================ -->
+
   <script src="https://cdn.jsdelivr.net/npm/aframe-extras@7.5.0/dist/aframe-extras.min.js"></script>
 
-  <!-- Vrai moteur physique (Cannon.js) : gravité, collisions objet-objet,
-       inertie / bascule réaliste, rebonds, etc. -->
+
+  <!-- ============================================================
+       A-FRAME PHYSICS SYSTEM - CANNON.JS
+       ============================================================ -->
+
   <script src="https://cdn.jsdelivr.net/gh/c-frame/aframe-physics-system@v4.2.4/dist/aframe-physics-system.min.js"></script>
 
+
   <script>
-    // Mouvment avec le joystick gauche
+
+
+    /* ============================================================
+       1. DÉPLACEMENT JOYSTICK GAUCHE
+       ============================================================ */
+
     AFRAME.registerComponent('left-thumbstick-move', {
 
       schema: {
-        rig: { type: 'selector' },
-        speed: { type: 'number', default: 2.0 }
+        rig: {
+          type: 'selector'
+        },
+
+        speed: {
+          type: 'number',
+          default: 2.0
+        }
       },
+
 
       init: function () {
 
         this.axisX = 0;
         this.axisY = 0;
 
-        this.onThumbstick = this.onThumbstick.bind(this);
+        this.onThumbstick =
+          this.onThumbstick.bind(this);
 
         this.el.addEventListener(
           'thumbstickmoved',
@@ -39,12 +67,16 @@
         );
       },
 
+
       onThumbstick: function (event) {
 
-        this.axisX = event.detail.x || 0;
-        this.axisY = event.detail.y || 0;
+        this.axisX =
+          event.detail.x || 0;
 
+        this.axisY =
+          event.detail.y || 0;
       },
+
 
       tick: function (time, delta) {
 
@@ -52,112 +84,161 @@
 
         if (!delta) return;
 
-        /*
-         * A-Frame donne :
-         * y < 0 = avant
-         * y > 0 = arrière
-         */
 
         const x = this.axisX;
+
         const z = -this.axisY;
 
-        if (Math.abs(x) < 0.05 && Math.abs(z) < 0.05) {
+
+        if (
+          Math.abs(x) < 0.05 &&
+          Math.abs(z) < 0.05
+        ) {
           return;
         }
 
-        const dt = delta / 1000;
-        const direction = new THREE.Vector3(
-          x,
-          0,
-          z
-        );
+
+        const dt =
+          delta / 1000;
+
+
+        const direction =
+          new THREE.Vector3(
+            x,
+            0,
+            z
+          );
+
 
         direction.applyAxisAngle(
           new THREE.Vector3(0, 1, 0),
           this.data.rig.object3D.rotation.y
         );
 
+
         this.data.rig.object3D.position.x +=
-          direction.x * this.data.speed * dt;
+          direction.x *
+          this.data.speed *
+          dt;
+
 
         this.data.rig.object3D.position.z +=
-          direction.z * this.data.speed * dt;
+          direction.z *
+          this.data.speed *
+          dt;
+
       }
 
     });
 
 
-    // Rotation avec le joystick droit
+
+    /* ============================================================
+       2. ROTATION JOYSTICK DROIT
+       ============================================================ */
+
     AFRAME.registerComponent('joystick-turn', {
 
       schema: {
+
         speed: {
           type: 'number',
           default: 1.8
         }
+
       },
+
 
       init: function () {
 
         this.axisX = 0;
 
+
         this.el.addEventListener(
           'thumbstickmoved',
           (event) => {
-            this.axisX = event.detail.x || 0;
+
+            this.axisX =
+              event.detail.x || 0;
+
           }
         );
+
       },
+
 
       tick: function (time, delta) {
 
         if (!delta) return;
 
-        if (Math.abs(this.axisX) < 0.1) {
+
+        if (
+          Math.abs(this.axisX) < 0.1
+        ) {
           return;
         }
 
-        const dt = delta / 1000;
+
+        const dt =
+          delta / 1000;
+
 
         this.el.parentEl.object3D.rotation.y -=
-          this.axisX * this.data.speed * dt;
+          this.axisX *
+          this.data.speed *
+          dt;
+
       }
 
     });
 
-    // custom cursor pour le laser
+
+
+    /* ============================================================
+       3. CURSEUR LASER
+       ============================================================ */
+
     AFRAME.registerComponent('laser-cursor', {
 
       schema: {
+
         color: {
           type: 'color',
           default: '#00FFFF'
         }
+
       },
+
 
       init: function () {
 
-        this.cursor = document.createElement('a-sphere');
+        this.cursor =
+          document.createElement('a-sphere');
+
 
         this.cursor.setAttribute(
           'radius',
           '0.018'
         );
 
+
         this.cursor.setAttribute(
           'color',
           this.data.color
         );
+
 
         this.cursor.setAttribute(
           'visible',
           'false'
         );
 
+
         this.cursor.setAttribute(
           'material',
           'shader: flat; opacity: 0.95'
         );
+
 
         this.el.sceneEl.appendChild(
           this.cursor
@@ -166,6 +247,7 @@
 
         this.onIntersection =
           this.onIntersection.bind(this);
+
 
         this.onClear =
           this.onClear.bind(this);
@@ -176,10 +258,12 @@
           this.onIntersection
         );
 
+
         this.el.addEventListener(
           'raycaster-intersection-cleared',
           this.onClear
         );
+
       },
 
 
@@ -188,10 +272,13 @@
         const raycaster =
           this.el.components.raycaster;
 
+
         if (!raycaster) return;
+
 
         const intersections =
           raycaster.intersections;
+
 
         if (
           !intersections ||
@@ -204,7 +291,11 @@
         const hit =
           intersections[0];
 
-        if (!hit || !hit.point) {
+
+        if (
+          !hit ||
+          !hit.point
+        ) {
           return;
         }
 
@@ -220,12 +311,21 @@
         let target =
           hit.object.el;
 
+
+        /*
+         * Si le rayon touche un mesh enfant,
+         * on remonte jusqu'au .grabbable.
+         */
+
         while (
           target &&
           !target.classList.contains('grabbable') &&
           target.parentEl
         ) {
-          target = target.parentEl;
+
+          target =
+            target.parentEl;
+
         }
 
 
@@ -233,6 +333,7 @@
           !target ||
           !target.classList.contains('grabbable')
         ) {
+
           this.cursor.setAttribute(
             'visible',
             'false'
@@ -246,10 +347,12 @@
           hit.point
         );
 
+
         this.cursor.setAttribute(
           'visible',
           'true'
         );
+
       },
 
 
@@ -259,179 +362,332 @@
           'visible',
           'false'
         );
+
       },
 
 
       remove: function () {
 
         if (this.cursor) {
+
           this.cursor.remove();
+
         }
+
 
         this.el.removeEventListener(
           'raycaster-intersection',
           this.onIntersection
         );
 
+
         this.el.removeEventListener(
           'raycaster-intersection-cleared',
           this.onClear
         );
+
       }
 
     });
 
 
-    /*
-     * shape-collider
-     * ----------------
-     * Calcule, pour la ROTATION ACTUELLE de l'objet, le point le plus bas
-     * de sa forme par rapport à son centre (un offset négatif ou nul).
-     *
-     * Sert uniquement pendant le grab : le moteur physique (Cannon) gère
-     * maintenant la gravité, les collisions et le repos au sol pour de
-     * vrai. Mais un objet "tenu" devient un corps kinématique, et un corps
-     * kinématique ne se fait pas repousser par le sol (les corps statiques
-     * et kinématiques ne collisionnent pas entre eux). On garde donc ce
-     * petit utilitaire pour empêcher l'objet de traverser visuellement le
-     * sol tant qu'on le tient dans la main.
-     */
-    AFRAME.registerComponent('shape-collider', {
 
-      schema: {
-        shape: {
-          type: 'string',
-          default: 'box',
-          oneOf: ['box', 'sphere', 'cylinder']
-        },
-        width: { type: 'number', default: 1 },
-        height: { type: 'number', default: 1 },
-        depth: { type: 'number', default: 1 },
-        radius: { type: 'number', default: 0.5 },
-        cylinderHeight: { type: 'number', default: 1 }
-      },
+    /* ============================================================
+       4. MATÉRIAU PHYSIQUE
+
+       Très important :
+
+       restitution = 0
+
+       => pas de rebond "balle".
+
+       friction élevée
+       => les objets ne glissent pas de manière excessive.
+
+       Tous les objets + le sol utilisent le même matériau.
+       ============================================================ */
+
+    AFRAME.registerComponent('vr-physics-material', {
 
       init: function () {
-        this._quaternion = new THREE.Quaternion();
-        this._matrix = new THREE.Matrix4();
+
+        this.applyMaterial =
+          this.applyMaterial.bind(this);
+
+
+        this.el.addEventListener(
+          'body-loaded',
+          this.applyMaterial
+        );
+
+
+        /*
+         * Dans certains cas le body existe déjà.
+         */
+
+        setTimeout(
+          this.applyMaterial,
+          100
+        );
+
       },
 
-      /*
-       * Retourne l'offset Y (négatif) entre le centre de l'objet
-       * et son point le plus bas, compte tenu de sa rotation.
-       * On peut lui passer un quaternion explicite (ex: pendant
-       * un grab, avant que la rotation ne soit vraiment appliquée),
-       * sinon on prend la rotation monde actuelle de l'objet.
-       */
-      getLowestOffset: function (quaternion) {
 
-        const shape = this.data.shape;
+      applyMaterial: function () {
 
-        if (shape === 'sphere') {
-          return -this.data.radius;
+        const scene =
+          this.el.sceneEl;
+
+
+        if (
+          !window.CANNON
+        ) {
+          return;
         }
 
-        let q = quaternion;
 
-        if (!q) {
-          this.el.object3D.getWorldQuaternion(this._quaternion);
-          q = this._quaternion;
+        if (
+          !scene.systems.physics ||
+          !scene.systems.physics.driver ||
+          !scene.systems.physics.driver.world
+        ) {
+          return;
         }
 
-        this._matrix.makeRotationFromQuaternion(q);
-        const e = this._matrix.elements;
 
-        // Contribution des axes locaux X / Y / Z à l'axe Y du monde
-        const ry_x = e[1];
-        const ry_y = e[5];
-        const ry_z = e[9];
+        const world =
+          scene.systems.physics.driver.world;
 
-        if (shape === 'box') {
 
-          const hx = this.data.width / 2;
-          const hy = this.data.height / 2;
-          const hz = this.data.depth / 2;
+        /*
+         * Création du matériau une seule fois.
+         */
 
-          return -(
-            Math.abs(ry_x) * hx +
-            Math.abs(ry_y) * hy +
-            Math.abs(ry_z) * hz
+        if (
+          !scene.__vrMaterial
+        ) {
+
+          scene.__vrMaterial =
+            new CANNON.Material(
+              'vr-material'
+            );
+
+
+          /*
+           * Collision entre deux objets ayant ce matériau.
+           */
+
+          const contactMaterial =
+            new CANNON.ContactMaterial(
+              scene.__vrMaterial,
+              scene.__vrMaterial,
+              {
+                friction: 0.65,
+
+                /*
+                 * ZÉRO REBOND.
+                 */
+                restitution: 0.0
+              }
+            );
+
+
+          world.addContactMaterial(
+            contactMaterial
           );
+
         }
 
-        if (shape === 'cylinder') {
 
-          const r = this.data.radius;
-          const hh = this.data.cylinderHeight / 2;
+        if (this.el.body) {
 
-          // direction locale correspondant à "vers le bas" dans le monde
-          const dx = -ry_x;
-          const dy = -ry_y;
-          const dz = -ry_z;
+          this.el.body.material =
+            scene.__vrMaterial;
 
-          const radial = Math.sqrt(dx * dx + dz * dz);
-          const support = r * radial + hh * Math.abs(dy);
-
-          return -support;
         }
 
-        return 0;
       }
 
     });
 
 
-    // Grab avec le laser + trigger, intégré au moteur physique Cannon.js
+
+    /* ============================================================
+       5. GRAB + THROW
+
+       Pendant le grab :
+         objet = KINEMATIC
+
+       Au lâcher :
+         objet = DYNAMIC
+
+       La vitesse de la manette est transférée à l'objet.
+
+       La rotation de la manette est également transférée.
+       ============================================================ */
+
     AFRAME.registerComponent('laser-grab', {
 
       schema: {
-        rig: { type: 'selector' },
 
-        // Hauteur du sol, pour empêcher un objet tenu de le traverser
-        floorY: { type: 'number', default: 0 },
+        rig: {
+          type: 'selector'
+        },
 
-        // Multiplicateurs appliqués à la vitesse relevée sur la manette
-        // au moment du lâcher : compense le lissage (lerp) de la vitesse
-        // et rend le lancer plus "franc", comme un vrai geste de bras.
-        throwVelocityMultiplier: { type: 'number', default: 1.25 },
-        throwSpinMultiplier: { type: 'number', default: 1.0 }
+
+        floorY: {
+          type: 'number',
+          default: 0
+        },
+
+
+        /*
+         * 1.0 = vitesse réelle de la main
+         *
+         * On évite 1.25 car cela pouvait produire
+         * des lancers trop violents.
+         */
+
+        throwVelocityMultiplier: {
+          type: 'number',
+          default: 1.0
+        },
+
+
+        throwSpinMultiplier: {
+          type: 'number',
+          default: 1.0
+        },
+
+
+        /*
+         * Sécurité pour éviter les vitesses absurdes.
+         */
+
+        maxThrowSpeed: {
+          type: 'number',
+          default: 10
+        },
+
+
+        maxSpinSpeed: {
+          type: 'number',
+          default: 15
+        }
+
       },
 
 
       init: function () {
 
         this.grabbed = null;
-        this.grabbedOriginalMass = 5;
 
-        this.localPosition = new THREE.Vector3();
-        this.localQuaternion = new THREE.Quaternion();
-        this.controllerPosition = new THREE.Vector3();
-        this.controllerQuaternion = new THREE.Quaternion();
-        this.tempPosition = new THREE.Vector3();
-        this.tempQuaternion = new THREE.Quaternion();
 
-        // --- pour le lancer : vitesse linéaire ---
-        this.prevControllerPosition = new THREE.Vector3();
-        this.controllerVelocity = new THREE.Vector3();
-        this.hasPrevPosition = false;
+        /*
+         * Position/rotation relative main -> objet.
+         */
 
-        // --- pour le lancer : vitesse angulaire (effet, rotation) ---
-        this.prevControllerQuaternion = new THREE.Quaternion();
-        this.controllerAngularVelocity = new THREE.Vector3();
-        this.hasPrevQuaternion = false;
-        this._deltaQuaternion = new THREE.Quaternion();
-        this._rotationAxis = new THREE.Vector3();
-        // ----------------------------------------------
+        this.localPosition =
+          new THREE.Vector3();
 
-        this.el.addEventListener('triggerdown', () => {
-          this.startGrab();
-        });
 
-        this.el.addEventListener('triggerup', () => {
-          this.endGrab();
-        });
+        this.localQuaternion =
+          new THREE.Quaternion();
+
+
+        /*
+         * Transformations contrôleur.
+         */
+
+        this.controllerPosition =
+          new THREE.Vector3();
+
+
+        this.controllerQuaternion =
+          new THREE.Quaternion();
+
+
+        this.tempPosition =
+          new THREE.Vector3();
+
+
+        this.tempQuaternion =
+          new THREE.Quaternion();
+
+
+        /*
+         * Vitesse linéaire.
+         */
+
+        this.prevControllerPosition =
+          new THREE.Vector3();
+
+
+        this.controllerVelocity =
+          new THREE.Vector3();
+
+
+        this.hasPrevPosition =
+          false;
+
+
+        /*
+         * Vitesse angulaire.
+         */
+
+        this.prevControllerQuaternion =
+          new THREE.Quaternion();
+
+
+        this.controllerAngularVelocity =
+          new THREE.Vector3();
+
+
+        this.hasPrevQuaternion =
+          false;
+
+
+        this.deltaQuaternion =
+          new THREE.Quaternion();
+
+
+        this.rotationAxis =
+          new THREE.Vector3();
+
+
+        /*
+         * Masse originale.
+         */
+
+        this.grabbedOriginalMass =
+          1;
+
+
+        this.el.addEventListener(
+          'triggerdown',
+          () => {
+
+            this.startGrab();
+
+          }
+        );
+
+
+        this.el.addEventListener(
+          'triggerup',
+          () => {
+
+            this.endGrab();
+
+          }
+        );
+
       },
 
+
+      /* ==========================================================
+         DÉBUT GRAB
+         ========================================================== */
 
       startGrab: function () {
 
@@ -451,6 +707,7 @@
           );
 
           return;
+
         }
 
 
@@ -464,14 +721,20 @@
         ) {
 
           console.log(
-            'Trigger pressé mais aucun objet'
+            'Aucun objet touché'
           );
 
           return;
+
         }
+
 
         let target = null;
 
+
+        /*
+         * Cherche le premier .grabbable.
+         */
 
         for (
           let i = 0;
@@ -492,6 +755,7 @@
 
             candidate =
               candidate.parentEl;
+
           }
 
 
@@ -500,40 +764,70 @@
             candidate.classList.contains('grabbable')
           ) {
 
-            target = candidate;
+            target =
+              candidate;
+
             break;
+
           }
+
         }
 
 
         if (!target) {
 
-          console.log(
-            'Aucun objet grabbable'
+          return;
+
+        }
+
+
+        if (!target.body) {
+
+          console.warn(
+            'Objet sans body physique :',
+            target.id
           );
 
           return;
+
         }
 
 
         console.log(
-          'GRAB:',
+          'GRAB :',
           target.id
         );
 
 
-        this.grabbed = target;
+        this.grabbed =
+          target;
+
+
+        /*
+         * Position monde de la manette.
+         */
 
         this.el.object3D.getWorldPosition(
           this.controllerPosition
         );
 
+
+        /*
+         * Rotation monde de la manette.
+         */
+
         this.el.object3D.getWorldQuaternion(
           this.controllerQuaternion
         );
 
+
+        /*
+         * Position/rotation monde de l'objet.
+         */
+
         const objectWorldPosition =
           new THREE.Vector3();
+
 
         const objectWorldQuaternion =
           new THREE.Quaternion();
@@ -543,53 +837,113 @@
           objectWorldPosition
         );
 
+
         target.object3D.getWorldQuaternion(
           objectWorldQuaternion
         );
+
+
+        /*
+         * Position relative main -> objet.
+         */
 
         this.localPosition
           .copy(objectWorldPosition)
           .sub(this.controllerPosition)
           .applyQuaternion(
-            this.controllerQuaternion.clone().invert()
+            this.controllerQuaternion
+              .clone()
+              .invert()
           );
 
+
+        /*
+         * Rotation relative main -> objet.
+         */
+
         this.localQuaternion
-          .copy(this.controllerQuaternion)
-          .invert()
+          .copy(
+            this.controllerQuaternion
+              .clone()
+              .invert()
+          )
           .multiply(
             objectWorldQuaternion
           );
 
-        /*
-         * Bascule le corps physique en mode "kinematic" : il n'est plus
-         * affecté par la gravité ni par les forces, on le déplace nous-
-         * mêmes à la main (littéralement), mais il continue de pouvoir
-         * pousser les autres objets dynamiques qu'il touche.
-         */
-        const body = target.body;
-
-        if (body) {
-
-          this.grabbedOriginalMass = body.mass || 5;
-
-          body.velocity.set(0, 0, 0);
-          body.angularVelocity.set(0, 0, 0);
-
-          body.type = CANNON.Body.KINEMATIC;
-          body.mass = 0;
-          body.updateMassProperties();
-        }
-
-        // reset du suivi de vitesse pour ce nouveau grab
-        this.hasPrevPosition = false;
-        this.hasPrevQuaternion = false;
-        this.controllerVelocity.set(0, 0, 0);
-        this.controllerAngularVelocity.set(0, 0, 0);
 
         /*
-         * État visuel
+         * ========================================================
+         * PASSAGE EN KINEMATIC
+         * ========================================================
          */
+
+        const body =
+          target.body;
+
+
+        this.grabbedOriginalMass =
+          body.mass;
+
+
+        /*
+         * On annule les anciennes vitesses.
+         */
+
+        body.velocity.set(
+          0,
+          0,
+          0
+        );
+
+
+        body.angularVelocity.set(
+          0,
+          0,
+          0
+        );
+
+
+        /*
+         * Kinematic = la main contrôle le body.
+         */
+
+        body.type =
+          CANNON.Body.KINEMATIC;
+
+
+        body.updateMassProperties();
+
+
+        body.wakeUp();
+
+
+        /*
+         * Reset vitesse.
+         */
+
+        this.controllerVelocity.set(
+          0,
+          0,
+          0
+        );
+
+
+        this.controllerAngularVelocity.set(
+          0,
+          0,
+          0
+        );
+
+
+        this.hasPrevPosition =
+          false;
+
+
+        this.hasPrevQuaternion =
+          false;
+
+
         target.classList.add(
           'grabbed'
         );
@@ -598,8 +952,13 @@
         target.emit(
           'grab-start'
         );
+
       },
 
+
+      /* ==========================================================
+         FIN GRAB / THROW
+         ========================================================== */
 
       endGrab: function () {
 
@@ -608,35 +967,121 @@
         }
 
 
-        console.log(
-          'TRIGGER UP'
-        );
-
-
         const object =
           this.grabbed;
 
 
-        const body = object.body;
+        const body =
+          object.body;
+
 
         if (body) {
 
-          const linear = this.controllerVelocity
-            .clone()
-            .multiplyScalar(this.data.throwVelocityMultiplier);
+          /*
+           * ------------------------------------------------------
+           * VITESSE LINÉAIRE
+           * ------------------------------------------------------
+           */
 
-          const angular = this.controllerAngularVelocity
-            .clone()
-            .multiplyScalar(this.data.throwSpinMultiplier);
+          const velocity =
+            this.controllerVelocity
+              .clone()
+              .multiplyScalar(
+                this.data.throwVelocityMultiplier
+              );
 
-          body.mass = this.grabbedOriginalMass;
-          body.type = CANNON.Body.DYNAMIC;
+
+          /*
+           * Empêche un lancer complètement aberrant.
+           */
+
+          if (
+            velocity.length() >
+            this.data.maxThrowSpeed
+          ) {
+
+            velocity.setLength(
+              this.data.maxThrowSpeed
+            );
+
+          }
+
+
+          /*
+           * ------------------------------------------------------
+           * VITESSE ANGULAIRE
+           * ------------------------------------------------------
+           */
+
+          const angularVelocity =
+            this.controllerAngularVelocity
+              .clone()
+              .multiplyScalar(
+                this.data.throwSpinMultiplier
+              );
+
+
+          if (
+            angularVelocity.length() >
+            this.data.maxSpinSpeed
+          ) {
+
+            angularVelocity.setLength(
+              this.data.maxSpinSpeed
+            );
+
+          }
+
+
+          /*
+           * ------------------------------------------------------
+           * RETOUR EN DYNAMIC
+           * ------------------------------------------------------
+           */
+
+          body.mass =
+            this.grabbedOriginalMass;
+
+
+          body.type =
+            CANNON.Body.DYNAMIC;
+
+
           body.updateMassProperties();
 
-          body.velocity.set(linear.x, linear.y, linear.z);
-          body.angularVelocity.set(angular.x, angular.y, angular.z);
+
+          /*
+           * Application du lancer.
+           */
+
+          body.velocity.set(
+            velocity.x,
+            velocity.y,
+            velocity.z
+          );
+
+
+          body.angularVelocity.set(
+            angularVelocity.x,
+            angularVelocity.y,
+            angularVelocity.z
+          );
+
 
           body.wakeUp();
+
+
+          console.log(
+            'THROW velocity:',
+            velocity
+          );
+
+
+          console.log(
+            'THROW angular:',
+            angularVelocity
+          );
+
         }
 
 
@@ -650,11 +1095,23 @@
         );
 
 
-        this.grabbed = null;
-        this.hasPrevPosition = false;
-        this.hasPrevQuaternion = false;
+        this.grabbed =
+          null;
+
+
+        this.hasPrevPosition =
+          false;
+
+
+        this.hasPrevQuaternion =
+          false;
+
       },
 
+
+      /* ==========================================================
+         UPDATE DU GRAB
+         ========================================================== */
 
       tick: function (time, delta) {
 
@@ -663,76 +1120,216 @@
         }
 
 
-        const object =
-          this.grabbed.object3D;
+        const entity =
+          this.grabbed;
 
+
+        const object =
+          entity.object3D;
+
+
+        const body =
+          entity.body;
+
+
+        if (!body) {
+          return;
+        }
+
+
+        const dt =
+          delta / 1000;
+
+
+        if (
+          dt <= 0 ||
+          dt > 0.1
+        ) {
+          return;
+        }
+
+
+        /*
+         * --------------------------------------------------------
+         * POSITION CONTROLLER
+         * --------------------------------------------------------
+         */
 
         this.el.object3D.getWorldPosition(
           this.controllerPosition
         );
 
+
+        /*
+         * --------------------------------------------------------
+         * ROTATION CONTROLLER
+         * --------------------------------------------------------
+         */
+
         this.el.object3D.getWorldQuaternion(
           this.controllerQuaternion
         );
 
-        // --- vitesse linéaire du contrôleur, pour le lancer ---
-        if (delta > 0) {
-          const dt = delta / 1000;
 
-          if (this.hasPrevPosition) {
-            const instantVelocity = new THREE.Vector3()
-              .subVectors(this.controllerPosition, this.prevControllerPosition)
+        /*
+         * ========================================================
+         * VITESSE LINÉAIRE
+         * ========================================================
+         */
+
+        if (
+          this.hasPrevPosition
+        ) {
+
+          const instantVelocity =
+            new THREE.Vector3()
+              .subVectors(
+                this.controllerPosition,
+                this.prevControllerPosition
+              )
               .divideScalar(dt);
 
-            this.controllerVelocity.lerp(instantVelocity, 0.5);
-          }
 
-          this.prevControllerPosition.copy(this.controllerPosition);
-          this.hasPrevPosition = true;
+          /*
+           * Lissage raisonnable.
+           *
+           * Trop de lissage = lancer mou.
+           * Pas assez = bruit du casque.
+           */
 
-          // --- vitesse angulaire du contrôleur, pour l'effet/la rotation ---
-          if (this.hasPrevQuaternion) {
+          this.controllerVelocity.lerp(
+            instantVelocity,
+            0.65
+          );
 
-            // delta = q_actuel * inverse(q_précédent)
-            this._deltaQuaternion
-              .copy(this.controllerQuaternion)
-              .multiply(
-                this.prevControllerQuaternion.clone().invert()
-              );
-
-            let w = this._deltaQuaternion.w;
-            if (w > 1) w = 1;
-            if (w < -1) w = -1;
-
-            let angle = 2 * Math.acos(w);
-
-            // toujours prendre le chemin de rotation le plus court
-            if (angle > Math.PI) {
-              angle -= 2 * Math.PI;
-            }
-
-            const s = Math.sqrt(1 - w * w);
-
-            if (s < 0.0001) {
-              this._rotationAxis.set(0, 0, 0);
-            } else {
-              this._rotationAxis.set(
-                this._deltaQuaternion.x / s,
-                this._deltaQuaternion.y / s,
-                this._deltaQuaternion.z / s
-              );
-            }
-
-            const instantAngular = this._rotationAxis
-              .multiplyScalar(angle / dt);
-
-            this.controllerAngularVelocity.lerp(instantAngular, 0.5);
-          }
-
-          this.prevControllerQuaternion.copy(this.controllerQuaternion);
-          this.hasPrevQuaternion = true;
         }
-        // -----------------------------------------------------------
+
+
+        this.prevControllerPosition.copy(
+          this.controllerPosition
+        );
+
+
+        this.hasPrevPosition =
+          true;
+
+
+        /*
+         * ========================================================
+         * VITESSE ANGULAIRE
+         * ========================================================
+         */
+
+        if (
+          this.hasPrevQuaternion
+        ) {
+
+          /*
+           * qDelta =
+           * qCurrent * inverse(qPrevious)
+           */
+
+          this.deltaQuaternion
+            .copy(
+              this.controllerQuaternion
+            )
+            .multiply(
+              this.prevControllerQuaternion
+                .clone()
+                .invert()
+            );
+
+
+          let w =
+            this.deltaQuaternion.w;
+
+
+          w =
+            THREE.MathUtils.clamp(
+              w,
+              -1,
+              1
+            );
+
+
+          /*
+           * Chemin de rotation le plus court.
+           */
+
+          if (w < 0) {
+
+            this.deltaQuaternion.x *= -1;
+            this.deltaQuaternion.y *= -1;
+            this.deltaQuaternion.z *= -1;
+            this.deltaQuaternion.w *= -1;
+
+            w = -w;
+
+          }
+
+
+          const angle =
+            2 *
+            Math.acos(w);
+
+
+          const s =
+            Math.sqrt(
+              Math.max(
+                0,
+                1 - w * w
+              )
+            );
+
+
+          if (
+            s > 0.0001 &&
+            angle < Math.PI
+          ) {
+
+            this.rotationAxis.set(
+
+              this.deltaQuaternion.x / s,
+
+              this.deltaQuaternion.y / s,
+
+              this.deltaQuaternion.z / s
+
+            );
+
+
+            const instantAngularVelocity =
+              this.rotationAxis
+                .clone()
+                .multiplyScalar(
+                  angle / dt
+                );
+
+
+            this.controllerAngularVelocity.lerp(
+              instantAngularVelocity,
+              0.65
+            );
+
+          }
+
+        }
+
+
+        this.prevControllerQuaternion.copy(
+          this.controllerQuaternion
+        );
+
+
+        this.hasPrevQuaternion =
+          true;
+
+
+        /*
+         * ========================================================
+         * NOUVELLE POSITION DE L'OBJET
+         * ========================================================
+         */
 
         this.tempPosition
           .copy(this.localPosition)
@@ -744,77 +1341,104 @@
           );
 
 
+        /*
+         * ========================================================
+         * NOUVELLE ROTATION DE L'OBJET
+         * ========================================================
+         */
+
         this.tempQuaternion
-          .copy(this.controllerQuaternion)
+          .copy(
+            this.controllerQuaternion
+          )
           .multiply(
             this.localQuaternion
-          );
-
-        // --- Empêche l'objet de passer sous le sol pendant le grab,
-        //     en tenant compte de sa rotation actuelle ---
-        const colliderComp = this.grabbed.components['shape-collider'];
-
-        if (colliderComp) {
-
-          const floorY = this.data.floorY;
-
-          // on utilise tempQuaternion : la rotation qui va être
-          // appliquée cette frame, pour rester précis même quand
-          // l'objet tourne pendant qu'on le tient
-          const lowestOffset = colliderComp.getLowestOffset(this.tempQuaternion);
-          const minY = floorY - lowestOffset;
-
-          if (this.tempPosition.y < minY) {
-            this.tempPosition.y = minY;
-          }
-        }
-        // ---------------------------------------------------------------
-
-        if (object.parent) {
-
-          const parentWorldPosition =
-            new THREE.Vector3();
-
-          const parentWorldQuaternion =
-            new THREE.Quaternion();
-
-          object.parent.getWorldPosition(
-            parentWorldPosition
-          );
-
-          object.parent.getWorldQuaternion(
-            parentWorldQuaternion
-          );
+          )
+          .normalize();
 
 
-          object.position
-            .copy(this.tempPosition)
-            .sub(parentWorldPosition)
-            .applyQuaternion(
-              parentWorldQuaternion.clone().invert()
-            );
+        /*
+         * ========================================================
+         * ON DÉPLACE DIRECTEMENT LE BODY CANNON
+         *
+         * C'est important :
+         * pendant le grab, on ne demande pas à A-Frame de
+         * reconstruire la position puis au moteur de la deviner.
+         *
+         * On donne directement la transformation au body.
+         * ========================================================
+         */
+
+        body.position.set(
+
+          this.tempPosition.x,
+
+          this.tempPosition.y,
+
+          this.tempPosition.z
+
+        );
 
 
-          object.quaternion
-            .copy(
-              parentWorldQuaternion.clone().invert()
-            )
-            .multiply(
-              this.tempQuaternion
-            );
+        body.quaternion.set(
 
-          // Le corps physique est kinématique pendant le grab : on vient
-          // de déplacer l'entité "à la main", c'est aframe-physics-system
-          // qui va relire cette transformation pour mettre à jour le
-          // corps Cannon (et donc pousser correctement ce qu'on touche).
+          this.tempQuaternion.x,
 
-        }
+          this.tempQuaternion.y,
+
+          this.tempQuaternion.z,
+
+          this.tempQuaternion.w
+
+        );
+
+
+        body.velocity.set(
+          0,
+          0,
+          0
+        );
+
+
+        body.angularVelocity.set(
+          0,
+          0,
+          0
+        );
+
+
+        body.aabbNeedsUpdate =
+          true;
+
+
+        body.wakeUp();
+
+
+        /*
+         * ========================================================
+         * SYNCHRONISATION A-FRAME
+         * ========================================================
+         */
+
+        object.position.copy(
+          this.tempPosition
+        );
+
+
+        object.quaternion.copy(
+          this.tempQuaternion
+        );
 
       }
 
     });
 
-    // Debug des contrôleurs
+
+
+    /* ============================================================
+       6. DEBUG CONTRÔLEURS
+       ============================================================ */
+
     AFRAME.registerComponent('controller-debug', {
 
       init: function () {
@@ -822,10 +1446,12 @@
         this.el.addEventListener(
           'triggerdown',
           () => {
+
             console.log(
               'DEBUG → TRIGGER DOWN',
               this.el.id
             );
+
           }
         );
 
@@ -833,10 +1459,12 @@
         this.el.addEventListener(
           'triggerup',
           () => {
+
             console.log(
               'DEBUG → TRIGGER UP',
               this.el.id
             );
+
           }
         );
 
@@ -854,6 +1482,7 @@
 
           }
         );
+
       }
 
     });
@@ -863,182 +1492,424 @@
 
 
 <body>
-<a-scene
-  background="color: #111111"
-  renderer="antialias: true; shadowMap: true"
-  vr-mode-ui="enabled: true"
-  physics="gravity: -9.8; friction: 0.4; restitution: 0.15; iterations: 12; debug: false"
->
-  <a-sky color="#FFFFFF"></a-sky>
 
-  <a-entity light="type: ambient; intensity: 0.7"></a-entity>
-  <a-entity light="type: directional; intensity: 1; castShadow: true" position="-2 5 3"></a-entity>
+<a-scene
+
+  background="
+    color: #111111
+  "
+
+  renderer="
+    antialias: true;
+    colorManagement: true;
+    physicallyCorrectLights: true;
+  "
+
+  vr-mode-ui="
+    enabled: true
+  "
+
+  /*
+   * ============================================================
+   * PHYSIQUE
+   * ============================================================
+   *
+   * gravity = gravité normale
+   *
+   * restitution = 0
+   * => PAS DE REBOND
+   *
+   * iterations = précision du solveur
+   *
+   * debug = false
+   *
+   */
+
+  physics="
+    gravity: 0 -9.81 0;
+    iterations: 15;
+    tolerance: 0.001;
+    debug: false;
+  "
+>
+
+
+  <!-- ==========================================================
+       CIEL
+       ========================================================== -->
+
+  <a-sky
+    color="#FFFFFF">
+  </a-sky>
+
+
+  <!-- ==========================================================
+       LUMIÈRES
+       ========================================================== -->
+
+  <a-entity
+    light="
+      type: ambient;
+      intensity: 0.7;
+    "
+  >
+  </a-entity>
+
+
+  <a-entity
+    light="
+      type: directional;
+      intensity: 1;
+      castShadow: true;
+    "
+    position="-2 5 3"
+  >
+  </a-entity>
+
+
+  <!-- ==========================================================
+       SOL VISUEL
+       ========================================================== -->
 
   <a-plane
+
     position="0 0 0"
+
     rotation="-90 0 0"
+
     width="20"
+
     height="20"
+
     color="#7BC8A4"
-    shadow="receive: true"
-    static-body="shape: box"
+
+    shadow="
+      receive: true
+    "
+
   >
   </a-plane>
 
+
+  <!-- ==========================================================
+       SOL PHYSIQUE
+       ==========================================================
+
+       Boîte très fine.
+
+       Son dessus est exactement à Y = 0 :
+
+       centre = -0.05
+       hauteur = 0.10
+
+       => sommet = 0
+
+       C'est plus fiable qu'un plan physique pour notre cas.
+       ========================================================== -->
+
+  <a-box
+
+    id="floorPhysics"
+
+    position="0 -0.05 0"
+
+    width="20"
+
+    height="0.1"
+
+    depth="20"
+
+    visible="false"
+
+    static-body="
+      shape: box
+    "
+
+    vr-physics-material
+
+  >
+  </a-box>
+
+
+
+  <!-- ==========================================================
+       RIG VR
+       ========================================================== -->
+
   <a-entity
+
     id="rig"
+
     position="0 0 2"
+
   >
 
+
+    <!-- ========================================================
+         CAMÉRA
+         ======================================================== -->
+
     <a-camera
+
       id="camera"
+
       position="0 1.6 0"
-      look-controls="enabled: true">
+
+      look-controls="
+        enabled: true
+      "
+
+    >
     </a-camera>
 
+
+
+    <!-- ========================================================
+         MAIN GAUCHE
+         ======================================================== -->
+
     <a-entity
+
       id="leftHand"
 
       meta-touch-controls="
         hand: left;
-        model: true
+        model: true;
       "
 
       laser-controls="
-        hand: left
+        hand: left;
       "
 
       raycaster="
         objects: .grabbable;
         far: 10;
-        interval: 0
+        interval: 0;
       "
 
       laser-cursor="
-        color: #00FFFF
+        color: #00FFFF;
       "
 
       laser-grab="
-        rig: #rig
+        rig: #rig;
+        floorY: 0;
+        throwVelocityMultiplier: 1.0;
+        throwSpinMultiplier: 1.0;
+        maxThrowSpeed: 10;
+        maxSpinSpeed: 15;
       "
 
       left-thumbstick-move="
         rig: #rig;
-        speed: 2.0
+        speed: 2.0;
       "
 
       controller-debug
 
       line="
         color: #00FFFF;
-        opacity: 0.8
+        opacity: 0.8;
       "
+
     >
     </a-entity>
 
+
+
+    <!-- ========================================================
+         MAIN DROITE
+         ======================================================== -->
+
     <a-entity
+
       id="rightHand"
 
       meta-touch-controls="
         hand: right;
-        model: true
+        model: true;
       "
 
       laser-controls="
-        hand: right
+        hand: right;
       "
 
       raycaster="
         objects: .grabbable;
         far: 10;
-        interval: 0
+        interval: 0;
       "
+
       laser-cursor="
-        color: #00FFFF
+        color: #00FFFF;
       "
+
       laser-grab="
-        rig: #rig
+        rig: #rig;
+        floorY: 0;
+        throwVelocityMultiplier: 1.0;
+        throwSpinMultiplier: 1.0;
+        maxThrowSpeed: 10;
+        maxSpinSpeed: 15;
       "
+
       joystick-turn="
-        speed: 1.8
+        speed: 1.8;
       "
+
       controller-debug
+
       line="
         color: #00FFFF;
-        opacity: 0.8
+        opacity: 0.8;
       "
+
     >
     </a-entity>
 
+
   </a-entity>
 
+
+
+  <!-- ==========================================================
+       CUBE
+       ==========================================================
+
+       Le cube :
+
+       - masse = 5
+       - vrai corps dynamique
+       - collisions avec les autres objets
+       - peut tomber d'une arête
+       - peut basculer
+       - peut être lancé
+       - peut recevoir un choc
+
+       angularDamping assez faible pour conserver un mouvement
+       naturel lorsqu'il tourne.
+       ========================================================== -->
+
   <a-box
+
     id="box"
+
     class="grabbable"
+
     position="-2 1 -4"
+
     width="1"
+
     height="1"
+
     depth="1"
+
     color="#4CC3D9"
-    shadow="cast: true; receive: true"
-    shape-collider="
-      shape: box;
-      width: 1;
-      height: 1;
-      depth: 1
+
+    shadow="
+      cast: true;
+      receive: true;
     "
+
     dynamic-body="
       shape: box;
       mass: 5;
-      linearDamping: 0.1;
-      angularDamping: 0.4
+      linearDamping: 0.03;
+      angularDamping: 0.08;
     "
+
+    vr-physics-material
+
   >
   </a-box>
 
+
+
+  <!-- ==========================================================
+       SPHÈRE
+       ========================================================== -->
+
   <a-sphere
+
     id="sphere"
+
     class="grabbable"
+
     position="2 1.25 -6"
+
     radius="1"
+
     color="#EF2D5E"
-    shadow="cast: true; receive: true"
-    shape-collider="
-      shape: sphere;
-      radius: 1
+
+    shadow="
+      cast: true;
+      receive: true;
     "
+
     dynamic-body="
       shape: sphere;
       sphereRadius: 1;
       mass: 3;
-      linearDamping: 0.05;
-      angularDamping: 0.2
+      linearDamping: 0.02;
+      angularDamping: 0.04;
     "
+
+    vr-physics-material
+
   >
   </a-sphere>
 
+
+
+  <!-- ==========================================================
+       CYLINDRE
+       ==========================================================
+
+       Le cylindre est volontairement assez libre en rotation.
+
+       Il peut donc :
+
+       - tomber sur le côté
+       - rouler
+       - entrer en collision avec le cube
+       - être lancé
+       - tourner sur lui-même
+       ========================================================== -->
+
   <a-cylinder
+
     id="cylinder"
+
     class="grabbable"
+
     position="-2 2 -7"
-    color="#FFC65D"
+
     radius="0.5"
+
     height="2"
-    shadow="cast: true; receive: true"
-    shape-collider="
-      shape: cylinder;
-      radius: 0.5;
-      cylinderHeight: 2
+
+    color="#FFC65D"
+
+    shadow="
+      cast: true;
+      receive: true;
     "
+
     dynamic-body="
       shape: cylinder;
       cylinderAxis: y;
       mass: 4;
-      linearDamping: 0.1;
-      angularDamping: 0.4
+      linearDamping: 0.03;
+      angularDamping: 0.08;
     "
+
+    vr-physics-material
+
   >
   </a-cylinder>
+
+
 </a-scene>
+
 </body>
 </html>
